@@ -33,4 +33,5 @@ d = { 'settings': { 'allowed_cell_metadata_keys': '',
                 'tst_flags': 'notest',
                 'user': 'drscotthawley',
                 'version': '0.0.1'},
-  'syms': {'aeiou.core': {'aeiou.core.foo': 'https://drscotthawley.github.io/aeiou/core.html#foo'}}}
+  'syms': { 'aeiou.core': { 'aeiou.core.foo': 'https://drscotthawley.github.io/aeiou/core.html#foo',
+                            'aeiou.core.say_hello': 'https://drscotthawley.github.io/aeiou/core.html#say_hello'}}}
