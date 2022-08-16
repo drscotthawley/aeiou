@@ -40,7 +40,14 @@ class HostPrinter():
             print(self.tag + s + self.untag, flush=True)
 
 # %% ../05_hpc.ipynb 13
-def save(accelerator, args, model, opt=None, epoch=None, step=None):
+def save(
+    accelerator, # Huggingface accelerator object
+    args,        # prefigure args dict, (we only use args.name)
+    model,       # the model, pre-unwrapped
+    opt=None,    # optimizer state
+    epoch=None,  # training epoch number
+    step=None    # training setp number
+    ):
     "for checkpointing & model saves"
     accelerator.wait_for_everyone()
     filename = f'{args.name}_{step:08}.pth' if (step is not None) else f'{args.name}.pth'
