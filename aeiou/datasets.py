@@ -123,7 +123,7 @@ class AudioDataset(torch.utils.data.Dataset):
 
     super().__init__()
     self.filenames = []
-    print(f"type(augs) = {type(augs)}")
+    #print(f"type(augs) = {type(augs)}")
     #self.augs = torch.nn.Sequential( eval(augs) )
     self.augs = torch.nn.Sequential(
       PadCrop(sample_size, randomize=random_crop),
