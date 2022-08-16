@@ -7,6 +7,7 @@ __all__ = ['get_accel_config', 'HostPrinter', 'save', 'n_params', 'freeze']
 import yaml
 import accelerate
 from pathlib import Path
+import tqdm
 import torch
 import torchaudio
 from torchaudio import transforms as T
