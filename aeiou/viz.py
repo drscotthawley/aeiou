@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['print_stats', 'spectrogram_image', 'tokens_spectrogram_image', 'plot_jukebox_embeddings']
 
-# %% ../02_viz.ipynb 3
+# %% ../02_viz.ipynb 4
 import math
 from pathlib import Path
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -26,7 +26,7 @@ import wandb
 import numpy as np
 import pandas as pd
 
-# %% ../02_viz.ipynb 7
+# %% ../02_viz.ipynb 8
 def print_stats(waveform, sample_rate=None, src=None, print=print):
     "print stats about waveform. Taken verbatim from pytorch docs."
     if src:
@@ -45,7 +45,7 @@ def print_stats(waveform, sample_rate=None, src=None, print=print):
     print(f"{waveform}")
     print('')
 
-# %% ../02_viz.ipynb 8
+# %% ../02_viz.ipynb 9
 def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[-60,20], justimage=False):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
@@ -71,7 +71,7 @@ def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=N
         #print(f"im.size = {im.size}")
     return im
 
-# %% ../02_viz.ipynb 12
+# %% ../02_viz.ipynb 13
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
     print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
@@ -87,7 +87,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 13
+# %% ../02_viz.ipynb 14
 def plot_jukebox_embeddings(zs, aspect='auto'):
     fig, ax = plt.subplots(nrows=len(zs))
     for i, z in enumerate(zs):

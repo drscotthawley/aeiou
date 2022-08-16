@@ -7,3 +7,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps: [uses: fastai/workflows/quarto-ghp@master]
+    run: |
+        sudo apt-get update
+        sudo apt-get install libopenmpi-dev libsndfile-dev
