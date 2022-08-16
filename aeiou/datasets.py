@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torchaudio
 from torchaudio import transforms as T
+from torchvision import transforms as VT
 import random
 import os
 import tqdm
