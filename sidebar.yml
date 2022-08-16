@@ -6,3 +6,4 @@ website:
       - 01_datasets.ipynb
       - 02_viz.ipynb
       - 03_chunkadelic.ipynb
+      - 04_spectrofu.ipynb
