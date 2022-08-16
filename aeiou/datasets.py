@@ -138,7 +138,7 @@ class AudioDataset(torch.utils.data.Dataset):
       Mono()   # but RAVE expects mono, ....for now ;-) 
     )
 
-    self.filenames = get_audio_file_list(paths)
+    self.filenames = get_audio_filenames(paths)
     print(f"{len(self.filenames)} files found.")
 
     self.sr = sample_rate
