@@ -109,14 +109,24 @@ class AudioDataset(torch.utils.data.Dataset):
   found therein. For efficiency, best if you "chunk" these files via chunkadelic
   modified from https://github.com/drscotthawley/audio-diffusion/blob/main/dataset/dataset.py
   """
-  def __init__(self, paths, global_args):
+  def __init__(self, 
+    paths, 
+    sample_rate=48000, 
+    sample_size=65536, 
+    random_crop=True, 
+    load_frac=1.0, 
+    cache_training_data=False, 
+    num_gpus=8,
+    augs='PadCrop(sample_size), PhaseFlipper()'              # list of augmentation transforms, as a string
+    ):
+
     super().__init__()
-    
+    self.filenames = []
+    print(f"type(augs) = {type(augs)}")
+    #self.augs = torch.nn.Sequential( eval(augs) )
     self.augs = torch.nn.Sequential(
-      PadCrop(global_args.sample_size, randomize=global_args.random_crop),
+      PadCrop(sample_size, randomize=random_crop),
       #RandomGain(0.7, 1.0),
-      #NormInputs(do_norm=global_args.norm_inputs),
-      #OneMinus(), # this is crazy, reverse the signal rel. to +/-1
       #RandPool(),
       #FillTheNoise(),
       PhaseFlipper(),
@@ -124,39 +134,42 @@ class AudioDataset(torch.utils.data.Dataset):
     )
 
     self.encoding = torch.nn.Sequential(
-      Stereo()
+      #Stereo()       # if images can be 3-channel RGB, we can do stereo. 
+      Mono()   # but RAVE expects mono, ....for now ;-) 
     )
 
-    self.filenames = get_audio_filenames()
+    self.filenames = get_audio_file_list(paths)
+    print(f"{len(self.filenames)} files found.")
 
-    self.sr = global_args.sample_rate
-    if hasattr(global_args,'load_frac'):
-      self.load_frac = global_args.load_frac
-    else:
-      self.load_frac = 1.0
+    self.sr = sample_rate
+    self.load_frac = load_frac
     self.n_files = int(len(self.filenames)*self.load_frac)
     self.filenames = self.filenames[0:self.n_files]
-
-    self.num_gpus = global_args.num_gpus
-
-    self.cache_training_data = global_args.cache_training_data
+    self.num_gpus = num_gpus
+    self.cache_training_data = cache_training_data
 
     if self.cache_training_data: self.preload_files()
 
+    self.convert_tensor = VT.ToTensor()
+
+  def load_file(self, filename):
+    audio, sr = torchaudio.load(filename)
+    if sr != self.sr:
+      resample_tf = T.Resample(sr, self.sr)
+      audio = resample_tf(audio)
+    return audio
 
   def load_file_ind(self, file_list,i): # used when caching training data
-    return load_audio(file_list[i]).cpu()
+    return self.load_file(file_list[i]).cpu()
 
-  def get_data_range(self): # for parallel runs, only grab part of the data
+  def get_data_range(self): # for parallel runs, only grab part of the data -- OBVIATED BY CHUNKING.
     start, stop = 0, len(self.filenames)
     try:
       local_rank = int(os.environ["LOCAL_RANK"])
       world_size = int(os.environ["WORLD_SIZE"])
       interval = stop//world_size
       start, stop = local_rank*interval, (local_rank+1)*interval
-      #print("local_rank, world_size, start, stop =",local_rank, world_size, start, stop)
       return start, stop
-      #rank = os.environ["RANK"]
     except KeyError as e: # we're on GPU 0 and the others haven't been initialized yet
       start, stop = 0, len(self.filenames)//self.num_gpus
       return start, stop
@@ -174,22 +187,25 @@ class AudioDataset(torch.utils.data.Dataset):
   def __getitem__(self, idx):
     audio_filename = self.filenames[idx]
     try:
-      if self.cache_training_data:
-        audio = self.audio_files[idx] # .copy()
-      else:
-        audio = self.load_file(audio_filename)
+        if self.cache_training_data:
+            audio = self.audio_files[idx] # .copy()
+        else:
+            audio = self.load_file(audio_filename)
 
-      #Run augmentations on this sample (including random crop)
-      if self.augs is not None:
-        audio = self.augs(audio)
+        #Run augmentations on this sample (including random crop)
+        if self.augs is not None:
+            audio = self.augs(audio)
 
-      audio = audio.clamp(-1, 1)
+        audio = audio.clamp(-1, 1)
 
-      #Encode the file to assist in prediction
-      if self.encoding is not None:
-        audio = self.encoding(audio)
+        #Encode the file to assist in prediction
+        if self.encoding is not None:
+            audio = self.encoding(audio)
 
-      return (audio, audio_filename)
+        out = audio 
+        #print("__getitem__: out.shape =",out.shape)
+        return out
+
     except Exception as e:
-     # print(f'Couldn\'t load file {audio_filename}: {e}')
+      print(f'Error loading file {audio_filename}: {e}')
       return self[random.randrange(len(self))]
