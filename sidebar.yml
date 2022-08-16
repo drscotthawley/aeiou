@@ -7,3 +7,6 @@ website:
       - 02_viz.ipynb
       - 03_chunkadelic.ipynb
       - 04_spectrofu.ipynb
+      - 05_hpc.ipynb
+      - datasets.html
+      - viz.html
