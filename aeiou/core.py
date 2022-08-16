@@ -51,12 +51,18 @@ def fast_scandir(
     "very fast `glob` alternative. from https://stackoverflow.com/a/59803793/4259243"
     subfolders, files = [], []
     ext = ['.'+x if x[0]!='.' else x for x in ext]  # add starting period to extensions if needed
-    for f in os.scandir(dir):
-        if f.is_dir():
-            subfolders.append(f.path)
-        if f.is_file():
-            if os.path.splitext(f.name)[1].lower() in ext:
-                files.append(f.path)
+    try: # hope to avoid 'permission denied' by this try
+        for f in os.scandir(dir):
+            try: # 'hope to avoid too many levels of symbolic links' error
+                if f.is_dir():
+                    subfolders.append(f.path)
+                elif f.is_file():
+                    if os.path.splitext(f.name)[1].lower() in ext:
+                        files.append(f.path)
+            except:
+                pass 
+    except:
+        pass
 
     for dir in list(subfolders):
         sf, f = fast_scandir(dir, ext)
@@ -72,6 +78,6 @@ def get_audio_filenames(
     filenames = []
     if type(paths) is str: paths = [paths]
     for path in paths:               # get a list of relevant filenames
-        subfolders, files = run_fast_scandir(path, ['.wav','.flac','.ogg','.aiff','.aif','.mp3'])
+        subfolders, files = fast_scandir(path, ['.wav','.flac','.ogg','.aiff','.aif','.mp3'])
         filenames.extend(files)
     return filenames
