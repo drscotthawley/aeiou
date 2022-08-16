@@ -4,3 +4,4 @@ website:
       - index.ipynb
       - 00_core.ipynb
       - 01_datasets.ipynb
+      - 02_viz.ipynb
