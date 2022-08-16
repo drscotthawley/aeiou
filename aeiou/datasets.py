@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'RandomGain', 'AudioDataset']
 
-# %% ../01_datasets.ipynb 4
+# %% ../01_datasets.ipynb 5
 import torch
 import torch.nn as nn
 import torchaudio
@@ -16,7 +16,7 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 from .core import load_audio, get_audio_filenames
 
-# %% ../01_datasets.ipynb 6
+# %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
     def __init__(self, n_samples, randomize=True):
         super().__init__()
@@ -103,7 +103,7 @@ class RandomGain(nn.Module):
         signal = signal * gain
         return signal
 
-# %% ../01_datasets.ipynb 8
+# %% ../01_datasets.ipynb 9
 class AudioDataset(torch.utils.data.Dataset):
   """
   Reads from a tree of directories and serves up cropped bits from any and all audio files

@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['get_accel_config', 'HostPrinter', 'save', 'n_params', 'freeze']
 
-# %% ../05_hpc.ipynb 4
+# %% ../05_hpc.ipynb 5
 import yaml
 import accelerate
 from pathlib import Path
@@ -13,7 +13,7 @@ import torchaudio
 from torchaudio import transforms as T
 import os
 
-# %% ../05_hpc.ipynb 5
+# %% ../05_hpc.ipynb 6
 def get_accel_config(filename='~/.cache/huggingface/accelerate/default_config.yaml'):
     "get huggingface accelerate config info" 
     try:  # first try to use the default file
@@ -31,7 +31,7 @@ def get_accel_config(filename='~/.cache/huggingface/accelerate/default_config.ya
 
     return ac
 
-# %% ../05_hpc.ipynb 9
+# %% ../05_hpc.ipynb 10
 class HostPrinter():
     "lil accelerate utility for only printing on host node"
     def __init__(
@@ -45,7 +45,7 @@ class HostPrinter():
         if self.accelerator.is_main_process:
             print(self.tag + s + self.untag, flush=True)
 
-# %% ../05_hpc.ipynb 13
+# %% ../05_hpc.ipynb 14
 def save(
     accelerator, # Huggingface accelerator object
     args,        # prefigure args dict, (we only use args.name)
@@ -65,7 +65,7 @@ def save(
     if step is not None:  obj['step'] = step
     accelerator.save(obj, filename)
 
-# %% ../05_hpc.ipynb 15
+# %% ../05_hpc.ipynb 16
 def n_params(
     module # raw PyTorch model/module, e.g. returned by accelerator.unwrap_model()
     ):
@@ -73,7 +73,7 @@ def n_params(
     Be sure to use accelerator.unwrap_model when calling this.  """
     return sum(p.numel() for p in module.parameters())
 
-# %% ../05_hpc.ipynb 16
+# %% ../05_hpc.ipynb 17
 def freeze(
     model  # raw PyTorch model, e.g. returned by accelerator.unwrap_model()
     ):
