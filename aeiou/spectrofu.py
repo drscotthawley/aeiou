@@ -3,6 +3,20 @@
 # %% auto 0
 __all__ = ['stf_up', 'process_one_file', 'main']
 
+# %% ../04_spectrofu.ipynb 6
+import argparse 
+from glob import glob 
+from pathlib import Path
+import os 
+import math
+from multiprocessing import Pool, cpu_count, Barrier
+from functools import partial
+from tqdm.contrib.concurrent import process_map  
+import torch
+import torchaudio
+from .core import is_silence, load_audio, makedir
+from .viz import audio_spectrogram_image
+
 # %% ../04_spectrofu.ipynb 7
 def stf_up(
     audio:torch.tensor,  # long audio file to be chunked
