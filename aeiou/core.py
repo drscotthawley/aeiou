@@ -45,14 +45,14 @@ def makedir(
 
 # %% ../00_core.ipynb 16
 def fast_scandir(
-    dir:str,      # top-level directory at which to begin scanning
-    ext:list  # list of allowed file extensions
+    path:str, # top-level directory at which to begin scanning
+    ext:list # list of allowed file extensions
     ):
     "very fast `glob` alternative. from https://stackoverflow.com/a/59803793/4259243"
     subfolders, files = [], []
     ext = ['.'+x if x[0]!='.' else x for x in ext]  # add starting period to extensions if needed
     try: # hope to avoid 'permission denied' by this try
-        for f in os.scandir(dir):
+        for f in os.scandir(path):
             try: # 'hope to avoid too many levels of symbolic links' error
                 if f.is_dir():
                     subfolders.append(f.path)
@@ -64,8 +64,8 @@ def fast_scandir(
     except:
         pass
 
-    for dir in list(subfolders):
-        sf, f = fast_scandir(dir, ext)
+    for path in list(subfolders):
+        sf, f = fast_scandir(path, ext)
         subfolders.extend(sf)
         files.extend(f)
     return subfolders, files
