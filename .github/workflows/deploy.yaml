@@ -6,4 +6,4 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps: [uses: fastai/workflows/quarto-ghp@master, run: sudo apt-get install libsndfile-dev]
+    steps: [run: sudo apt-get install libsndfile-dev, uses: fastai/workflows/quarto-ghp@master]
