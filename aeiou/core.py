@@ -25,7 +25,7 @@ def load_audio(
 # %% ../00_core.ipynb 10
 def is_silence(
     audio,       # torch tensor of (multichannel) audio
-    thresh=-60,  # threshold in dB below, which we declare to be silence
+    thresh=-60,  # threshold in dB below which we declare to be silence
     ):
     "checks if entire clip is 'silence' below some dB threshold"
     dBmax = 20*torch.log10(torch.flatten(audio.abs()).max()).cpu().numpy()
