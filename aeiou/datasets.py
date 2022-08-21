@@ -43,7 +43,7 @@ class PadCrop(nn.Module):
         chunk = self.draw_chunk(signal)
         num_redraws = 0
         while self.redraw_silence and is_silence(chunk, thresh=self.silence_thresh) and (num_redraws < self.max_redraws):
-            print(f"    PadCrop: Got silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
+            #print(f"    PadCrop: Got silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
             chunk, num_redraws = self.draw_chunk(signal), num_redraws+1
         return chunk
 
@@ -244,8 +244,7 @@ class AudioDataset(torch.utils.data.Dataset):
         num_redraws = 0 
         while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
             and (num_redraws < self.max_redraws)):
-            print(torch.max(audio))
-            print(f"AudioDataset.__getitem__: Got None or silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
+            #print(f"AudioDataset.__getitem__: Got None or silence (torch.max = {torch.max(audio)})  Redrawing. Attempt {num_redraws+1} of {self.max_redraws}")
             next_idx = random.randint(0,len(self.filenames)-1)     # pick some other file at random
             audio, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
                
