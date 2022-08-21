@@ -163,9 +163,11 @@ class AudioDataset(torch.utils.data.Dataset):
         )"""
         # base_augs are always applied
         base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
-
+        augs = f'{base_augs}, {augs}'
+        #print("augs = ",augs)
         #print(f"type(augs) = {type(augs)}")
-        self.augs = torch.nn.Sequential( eval(f'{base_augs}, {augs}') )
+        #print(f"type(eval(augs)) = {type(eval(augs))}")
+        self.augs = torch.nn.ModuleList( eval(augs) )
 
         self.encoding = torch.nn.Sequential(  # TODO: technically this can be treated as part of an augmentation
           #Stereo() # if images can be 3-channel RGB, we can do stereo. 
@@ -176,9 +178,9 @@ class AudioDataset(torch.utils.data.Dataset):
         print(f"{len(self.filenames)} files found.")
 
         self.sr = sample_rate
-        self.n_files = int(len(self.filenames)*self.load_frac)
+        self.n_files = int(len(self.filenames)*load_frac)
         self.filenames = self.filenames[0:self.n_files]
-        if self.cache_training_data: self.preload_files()
+        if cache_training_data: self.preload_files()
 
         self.convert_tensor = VT.ToTensor()
 
