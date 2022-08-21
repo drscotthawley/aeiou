@@ -105,12 +105,12 @@ class Stereo(nn.Module):
     def __call__(self, signal):
         signal_shape = signal.shape
         # Check if it's mono
-        if len(signal_shape) == 1: # s -> 2, s
+        if len(signal.shape) == 1: # s -> 2, s
             signal = signal.unsqueeze(0).repeat(2, 1)
         elif len(signal_shape) == 2:
-            if signal_shape[0] == 1: #1, s -> 2, s
+            if signal.shape[0] == 1: #1, s -> 2, s
                 signal = signal.repeat(2, 1)
-            elif signal_shape[0] > 2: #?, s -> 2,s
+            elif signal.shape[0] > 2: #?, s -> 2,s
                 signal = signal[:2, :]    
         return signal
 
@@ -145,7 +145,7 @@ class AudioDataset(torch.utils.data.Dataset):
         redraw_silence=True, # a chunk containing silence will be replaced with a new one
         silence_thresh=-60,  # threshold in dB below which we declare to be silence
         max_redraws=2,        # when redrawing silences, don't do it more than this many
-        augs='PhaseFlipper()' # list of augmentation transforms **after PadCrop**, as a string
+        augs='Stereo(), PhaseFlipper()' # list of augmentation transforms **after PadCrop**, as a string
         ):
         super().__init__()
     
@@ -158,24 +158,18 @@ class AudioDataset(torch.utils.data.Dataset):
           PhaseFlipper(),
           #NormInputs(do_norm=global_args.norm_inputs),
         )"""
+        print("augs =",augs)
         # base_augs are always applied
         base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
-        #self.augs = torch.nn.Sequential(  )
         self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
-
         self.silence_thresh = silence_thresh
         self.redraw_silence = redraw_silence
         self.max_redraws = max_redraws
         self.sr = sample_rate
         self.cache_training_data = cache_training_data
-        
-        self.encoding = torch.nn.Sequential(  # TODO: technically this can be treated as part of an augmentation
-          #Stereo() # if images can be 3-channel RGB, we can do stereo. 
-          Mono()   # but RAVE expects mono, ....for now ;-) 
-        )
 
         self.filenames = get_audio_filenames(paths)
-        print(f"{len(self.filenames)} files found.")
+        print(f"AudioDataset:{len(self.filenames)} files found.")
         self.n_files = int(len(self.filenames)*load_frac)
         self.filenames = self.filenames[0:self.n_files]
         if cache_training_data: self.preload_files()
@@ -224,9 +218,6 @@ class AudioDataset(torch.utils.data.Dataset):
                 audio = self.augs(audio)
                 
             audio = audio.clamp(-1, 1)
-            
-            if self.encoding is not None:  # Encode the file to assist in prediction
-                audio = self.encoding(audio)
             return audio
         
         except Exception as e:
