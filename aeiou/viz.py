@@ -137,7 +137,7 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
 
     melspec = mel_spectrogram_op(waveform.float())
     if log:
-        print_stats(melspec, print=print)
+        print_stats(melspec, print=print) 
         print(f"torch.max(melspec) = {torch.max(melspec)}")
         print(f"melspec.shape = {melspec.shape}")
     melspec = melspec[0] # TODO: only left channel for now
