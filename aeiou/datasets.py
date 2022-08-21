@@ -162,7 +162,7 @@ class AudioDataset(torch.utils.data.Dataset):
           #NormInputs(do_norm=global_args.norm_inputs),
         )"""
         # base_augs are always applied
-        base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws'
+        base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
 
         #print(f"type(augs) = {type(augs)}")
         self.augs = torch.nn.Sequential( eval(f'{base_augs}, {augs}'), redraw_silence=redraw_silence )
