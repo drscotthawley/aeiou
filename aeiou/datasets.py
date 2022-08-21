@@ -165,7 +165,7 @@ class AudioDataset(torch.utils.data.Dataset):
         base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
 
         #print(f"type(augs) = {type(augs)}")
-        self.augs = torch.nn.Sequential( eval(f'{base_augs}, {augs}'), redraw_silence=redraw_silence )
+        self.augs = torch.nn.Sequential( eval(f'{base_augs}, {augs}') )
 
         self.encoding = torch.nn.Sequential(  # TODO: technically this can be treated as part of an augmentation
           #Stereo() # if images can be 3-channel RGB, we can do stereo. 
