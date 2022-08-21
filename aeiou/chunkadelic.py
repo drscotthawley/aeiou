@@ -3,6 +3,17 @@
 # %% auto 0
 __all__ = ['blow_chunks', 'process_one_file', 'main']
 
+# %% ../03_chunkadelic.ipynb 6
+import argparse 
+import os 
+from multiprocessing import Pool, cpu_count, Barrier
+from functools import partial
+from tqdm.contrib.concurrent import process_map  
+import torch
+import torchaudio
+import math
+from .core import is_silence, load_audio, makedir, get_audio_filenames
+
 # %% ../03_chunkadelic.ipynb 7
 def blow_chunks(
     audio:torch.tensor,  # long audio file to be chunked
