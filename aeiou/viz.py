@@ -143,7 +143,7 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 14
+# %% ../02_viz.ipynb 15
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
     print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
@@ -159,7 +159,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 15
+# %% ../02_viz.ipynb 16
 def plot_jukebox_embeddings(zs, aspect='auto'):
     fig, ax = plt.subplots(nrows=len(zs))
     for i, z in enumerate(zs):
