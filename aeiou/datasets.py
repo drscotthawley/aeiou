@@ -43,6 +43,7 @@ class PadCrop(nn.Module):
         chunk = draw_chunk(signal)
         num_redraws = 0
         if redraw_silence and is_silence(chunk, thresh=self.silence_thresh) and (num_redraws < self.max_redraws):
+            print(f"    PadCrop: Got silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
             chunk, num_redraws = draw_chunk(signal), num_redraws+1
         return chunk
 
@@ -240,6 +241,7 @@ class AudioDataset(torch.utils.data.Dataset):
         # even with PadCrop set to reject silences, it could be that the whole file is silence; 
         num_redraws = 0 
         if (audio is None) or (redraw_silence and is_silence(audio, thresh=self.silence_thresh) and (num_redraws < self.max_redraws)):
+            print(f"    AudioDataset.__getitem__: Got silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
             next_idx = random.randint(len(self.filenames))     # pick some other file at random
             audio, num_redraws = get_next_chunk(next_idx), num_redraws+1
                
