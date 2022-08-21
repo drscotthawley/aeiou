@@ -15,7 +15,7 @@ import tqdm
 from multiprocessing import Pool, cpu_count
 from functools import partial
 from .core import load_audio, get_audio_filenames, is_silence
-from fastcore.utils import store_attr 
+from fastcore.utils import *
 
 # %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
@@ -40,11 +40,11 @@ class PadCrop(nn.Module):
     
     def __call__(self, signal):
         "when part of the pipline, this will grab a padded/cropped chunk from signal"
-        chunk = draw_chunk(signal)
+        chunk = self.draw_chunk(signal)
         num_redraws = 0
-        if redraw_silence and is_silence(chunk, thresh=self.silence_thresh) and (num_redraws < self.max_redraws):
+        while self.redraw_silence and is_silence(chunk, thresh=self.silence_thresh) and (num_redraws < self.max_redraws):
             print(f"    PadCrop: Got silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
-            chunk, num_redraws = draw_chunk(signal), num_redraws+1
+            chunk, num_redraws = self.draw_chunk(signal), num_redraws+1
         return chunk
 
 # %% ../01_datasets.ipynb 8
@@ -148,9 +148,6 @@ class AudioDataset(torch.utils.data.Dataset):
         augs='PhaseFlipper()' # list of augmentation transforms **after PadCrop**, as a string
         ):
         super().__init__()
-        store_attr()     # sets self.___ vars automatically
-    
-        self.filenames = []
     
         # Note moved augs definition to config file / cmd-line arg. 
         """self.augs = torch.nn.Sequential(
@@ -163,12 +160,15 @@ class AudioDataset(torch.utils.data.Dataset):
         )"""
         # base_augs are always applied
         base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
-        augs = f'{base_augs}, {augs}'
-        #print("augs = ",augs)
-        #print(f"type(augs) = {type(augs)}")
-        #print(f"type(eval(augs)) = {type(eval(augs))}")
-        self.augs = torch.nn.ModuleList( eval(augs) )
+        #self.augs = torch.nn.Sequential(  )
+        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
 
+        self.silence_thresh = silence_thresh
+        self.redraw_silence = redraw_silence
+        self.max_redraws = max_redraws
+        self.sr = sample_rate
+        self.cache_training_data = cache_training_data
+        
         self.encoding = torch.nn.Sequential(  # TODO: technically this can be treated as part of an augmentation
           #Stereo() # if images can be 3-channel RGB, we can do stereo. 
           Mono()   # but RAVE expects mono, ....for now ;-) 
@@ -176,8 +176,6 @@ class AudioDataset(torch.utils.data.Dataset):
 
         self.filenames = get_audio_filenames(paths)
         print(f"{len(self.filenames)} files found.")
-
-        self.sr = sample_rate
         self.n_files = int(len(self.filenames)*load_frac)
         self.filenames = self.filenames[0:self.n_files]
         if cache_training_data: self.preload_files()
@@ -213,38 +211,42 @@ class AudioDataset(torch.utils.data.Dataset):
     def get_next_chunk(self, 
         idx     # the index of the file within the list of files
         ):
-        "The heard of this whole dataset routine"
+        "The heart of this whole dataset routine"
         audio_filename = self.filenames[idx]
         try:
             if self.cache_training_data:
                 audio = self.audio_files[idx] # .copy()
             else:
-                audio = self.load_file(audio_filename)
+                audio = load_audio(audio_filename, sr=self.sr)
 
             #Run augmentations on this sample (including random crop)
             if self.augs is not None:
                 audio = self.augs(audio)
-
+                
             audio = audio.clamp(-1, 1)
-      
+            
+            if self.encoding is not None:  # Encode the file to assist in prediction
+                audio = self.encoding(audio)
+            return audio
+        
         except Exception as e:
           print(f'Error loading file {audio_filename}: {e}')
           return None
         
-        if self.encoding is not None:  # Encode the file to assist in prediction
-            audio = self.encoding(audio)
         
         
     def __getitem__(self, 
         idx     # the index of the file within the list of files
         ):
-        audio = get_next_chunk(idx)
+        audio = self.get_next_chunk(idx)
                 
         # even with PadCrop set to reject silences, it could be that the whole file is silence; 
         num_redraws = 0 
-        if (audio is None) or (redraw_silence and is_silence(audio, thresh=self.silence_thresh) and (num_redraws < self.max_redraws)):
-            print(f"    AudioDataset.__getitem__: Got silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
-            next_idx = random.randint(len(self.filenames))     # pick some other file at random
-            audio, num_redraws = get_next_chunk(next_idx), num_redraws+1
+        while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
+            and (num_redraws < self.max_redraws)):
+            print(torch.max(audio))
+            print(f"AudioDataset.__getitem__: Got None or silence.  Redrawing. Try {num_redraws+1} of {self.max_redraws}")
+            next_idx = random.randint(0,len(self.filenames)-1)     # pick some other file at random
+            audio, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
                
         return self[random.randrange(len(self))] if (audio is None) else audio
