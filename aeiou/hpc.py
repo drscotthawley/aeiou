@@ -55,7 +55,7 @@ def save(
     step=None    # training setp number
     ):
     "for checkpointing & model saves"
-    #accelerator.wait_for_everyone() # hangs
+    #accelerator.wait_for_everyone() # hangs. commenting out
     filename = f'{args.name}_{step:08}.pth' if (step is not None) else f'{args.name}.pth'
     if accelerator.is_main_process:
         print(f'\nSaving checkpoint to {filename}...')
