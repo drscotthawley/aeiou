@@ -55,10 +55,10 @@ def save(
     step=None    # training setp number
     ):
     "for checkpointing & model saves"
-    accelerator.wait_for_everyone()
+    #accelerator.wait_for_everyone() # hangs
     filename = f'{args.name}_{step:08}.pth' if (step is not None) else f'{args.name}.pth'
     if accelerator.is_main_process:
-        tqdm.write(f'Saving to {filename}...')
+        print(f'\nSaving checkpoint to {filename}...')
     obj = {'model': accelerator.unwrap_model(model).state_dict() }
     if opt is not None:   obj['opt'] = opt.state_dict()
     if epoch is not None: obj['epoch'] = epoch
