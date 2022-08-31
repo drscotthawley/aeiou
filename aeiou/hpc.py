@@ -76,7 +76,7 @@ def load(
     #accelerator.wait_for_everyone() # hangs
     if accelerator.is_main_process:
         print(f'\nLoading checkpoint from {filename}...')
-    accelerator.unwrap_model(model).load_state_dict(torch.load(filename))
+    accelerator.unwrap_model(model).load_state_dict(torch.load(filename)['model'])
     return model # this return isn't actually needed since model is already updated at this point
 
 # %% ../05_hpc.ipynb 17
