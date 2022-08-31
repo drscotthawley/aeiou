@@ -69,7 +69,7 @@ def save(
 def load(
     accelerator, # Huggingface accelerator object
     model,       # an uninitialized model (pre-unwrapped) whose weights will be overwritten
-    filname:str, # name of the checkpoint file
+    filename:str, # name of the checkpoint file
     opt=None,    # optimizer state UNUSED FOR NOW
     ):
     "load a saved model checkpoint"
