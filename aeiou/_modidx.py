@@ -61,5 +61,6 @@ d = { 'settings': { 'branch': 'main',
                            'aeiou.viz.plot_jukebox_embeddings': ('viz.html#plot_jukebox_embeddings', 'aeiou/viz.py'),
                            'aeiou.viz.print_stats': ('viz.html#print_stats', 'aeiou/viz.py'),
                            'aeiou.viz.proj_pca': ('viz.html#proj_pca', 'aeiou/viz.py'),
+                           'aeiou.viz.show_pca_point_cloud': ('viz.html#show_pca_point_cloud', 'aeiou/viz.py'),
                            'aeiou.viz.spectrogram_image': ('viz.html#spectrogram_image', 'aeiou/viz.py'),
                            'aeiou.viz.tokens_spectrogram_image': ('viz.html#tokens_spectrogram_image', 'aeiou/viz.py')}}}
