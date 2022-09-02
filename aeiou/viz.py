@@ -51,9 +51,8 @@ def proj_pca(tokens, proj_dims=3):
     "this projects via PCA, grabbing the first _3_ dimensions"
     A = rearrange(tokens, 'b d n -> (b n) d') # put all the vectors into the same d-dim space
     if A.shape[-1] > proj_dims: 
-        k = proj_dims
         (U, S, V) = torch.pca_lowrank(A)
-        proj_data = torch.matmul(A, V[:, :k])  # this is the actual PCA projection step
+        proj_data = torch.matmul(A, V[:, :proj_dims])  # this is the actual PCA projection step
     else:
         proj_data = A
     return torch.reshape(proj_data, (tokens.size()[0], -1, proj_dims)) # put it in shape [batch, n, 3]
@@ -67,16 +66,13 @@ def pca_point_cloud(tokens, color_scheme='batch', points_only=False):
         cmap, norm = cm.tab20, Normalize(vmin=0, vmax=data.shape[0])
     else: 
         cmap, norm = cm.viridis, Normalize(vmin=0, vmax=data.shape[1])
-    #print("   pca_point_cloud: data.shape = ",data.shape)
     for bi in range(data.shape[0]):  # batch index
         if color_scheme=='batch': [r, g, b, _] = [int(255*x) for x in cmap(norm(bi))] 
         for n in range(data.shape[1]):
             if color_scheme!='batch': [r, g, b, _] = [int(255*x) for x in cmap(norm(n))] 
-            #print(f"  {data[bi,n,0]}, {data[bi,n,1]}, {data[bi,n,2]}, {r}, {g}, {b}")
             points.append([data[bi,n,0], data[bi,n,1], data[bi,n,2], r, g, b])
 
     point_cloud = np.array(points)
-    #print("   pca_point_cloud: point_cloud.shape = ",point_cloud.shape)
     return point_cloud if points_only else wandb.Object3D(point_cloud)
 
 # %% ../02_viz.ipynb 9
