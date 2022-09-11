@@ -76,7 +76,7 @@ def pca_point_cloud(tokens, color_scheme='batch', points_only=False):
     point_cloud = np.array(points)
     return point_cloud if points_only else wandb.Object3D(point_cloud)
 
-# %% ../02_viz.ipynb 9
+# %% ../02_viz.ipynb 10
 # have to do a little extra stuff to make this come out in the docs.  This part taken from drscotthawley's `mrspuff` library
 from IPython.display import display, HTML  # TODO: add IPython to requirements?
 
@@ -108,7 +108,7 @@ def show_pca_point_cloud(tokens, color_scheme='batch'):
     fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
     fig.show()
 
-# %% ../02_viz.ipynb 12
+# %% ../02_viz.ipynb 13
 def print_stats(waveform, sample_rate=None, src=None, print=print):
     "print stats about waveform. Taken verbatim from pytorch docs."
     if src:
@@ -127,7 +127,7 @@ def print_stats(waveform, sample_rate=None, src=None, print=print):
     print(f"{waveform}")
     print('')
 
-# %% ../02_viz.ipynb 13
+# %% ../02_viz.ipynb 14
 def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[-60,20], justimage=False):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
@@ -153,7 +153,7 @@ def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=N
         #print(f"im.size = {im.size}")
     return im
 
-# %% ../02_viz.ipynb 14
+# %% ../02_viz.ipynb 15
 def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db_range=[-60,20], justimage=False, log=False):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     n_fft = 1024
@@ -174,10 +174,10 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 18
+# %% ../02_viz.ipynb 19
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
-    print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
+    #print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
     fig = Figure(figsize=(10, 4), dpi=100)
     canvas = FigureCanvasAgg(fig)
     axs = fig.add_subplot()
@@ -190,7 +190,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 20
+# %% ../02_viz.ipynb 21
 def plot_jukebox_embeddings(zs, aspect='auto'):
     fig, ax = plt.subplots(nrows=len(zs))
     for i, z in enumerate(zs):
