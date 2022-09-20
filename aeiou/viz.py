@@ -58,9 +58,15 @@ def proj_pca(tokens, proj_dims=3):
         proj_data = A
     return torch.reshape(proj_data, (tokens.size()[0], -1, proj_dims)) # put it in shape [batch, n, 3]
 
-# %% ../02_viz.ipynb 8
-def pca_point_cloud(tokens, color_scheme='batch', points_only=False):
-    "produces a 3D wandb point cloud of the tokens using PCA. tokens has shape (b, d, n)"
+# %% ../02_viz.ipynb 9
+def pca_point_cloud(
+    tokens,                  # embeddings / latent vectors. shape = (b, d, n)
+    color_scheme='batch',    # 'batch': group by sample, otherwise color sequentially
+    output_type='wandbobj',  # plotly | points | wandbobj.  NOTE: WandB can do 'plotly' directly!
+    mode='lines+markers',    # plotly scatter mode.  'lines+markers' or 'markers'
+    marker_size=3,
+    ):
+    "returns a 3D point cloud of the tokens using PCA"
     data = proj_pca(tokens).cpu().numpy()
     points = []
     if color_scheme=='batch':
@@ -74,11 +80,20 @@ def pca_point_cloud(tokens, color_scheme='batch', points_only=False):
             points.append([data[bi,n,0], data[bi,n,1], data[bi,n,2], r, g, b])
 
     point_cloud = np.array(points)
-    return point_cloud if points_only else wandb.Object3D(point_cloud)
+    
+    if output_type == 'points':
+        return point_cloud
+    elif output_type =='plotly':
+        fig = go.Figure(data=[go.Scatter3d(x=point_cloud[:,0], y=point_cloud[:,1], z=point_cloud[:,2],
+                    mode=mode, marker=dict(size=marker_size, opacity=0.6, color=point_cloud[:,3:6]))])
+        fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
+        return fig
+    else:
+        return wandb.Object3D(point_cloud)
 
-# %% ../02_viz.ipynb 10
+# %% ../02_viz.ipynb 11
 # have to do a little extra stuff to make this come out in the docs.  This part taken from drscotthawley's `mrspuff` library
-from IPython.display import display, HTML  # TODO: add IPython to requirements?
+from IPython.display import display, HTML  # TODO: add jupyter/IPython to aeiou requirements?
 
 def on_colab():   # cf https://stackoverflow.com/questions/53581278/test-if-notebook-is-running-on-google-colab
     """Returns true if code is being executed on Colab, false otherwise"""
@@ -99,16 +114,13 @@ def setup_plotly(nbdev=True):
         display(HTML(js))
     plotly_already_setup = True 
     
-def show_pca_point_cloud(tokens, color_scheme='batch'):
-    "use plotly to display a 3d scatter plot of tokens"
+def show_pca_point_cloud(tokens, color_scheme='batch', mode='lines+markers'):
+    "display a 3d scatter plot of tokens in notebook"
     setup_plotly()
-    pc_arr = pca_point_cloud(tokens, color_scheme=color_scheme, points_only=True)
-    fig = go.Figure(data=[go.Scatter3d(x=pc_arr[:,0], y=pc_arr[:,1], z=pc_arr[:,2],
-                mode='markers', marker=dict(size=3, opacity=0.6, color=pc_arr[:,3:6]))])
-    fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
+    fig = pca_point_cloud(tokens, color_scheme=color_scheme, output_type='plotly', mode=mode)
     fig.show()
 
-# %% ../02_viz.ipynb 13
+# %% ../02_viz.ipynb 15
 def print_stats(waveform, sample_rate=None, src=None, print=print):
     "print stats about waveform. Taken verbatim from pytorch docs."
     if src:
@@ -127,7 +139,7 @@ def print_stats(waveform, sample_rate=None, src=None, print=print):
     print(f"{waveform}")
     print('')
 
-# %% ../02_viz.ipynb 14
+# %% ../02_viz.ipynb 20
 def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[-60,20], justimage=False):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
@@ -153,9 +165,9 @@ def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=N
         #print(f"im.size = {im.size}")
     return im
 
-# %% ../02_viz.ipynb 15
+# %% ../02_viz.ipynb 21
 def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db_range=[-60,20], justimage=False, log=False):
-    "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
+    "Wrapper for above, does Mel scale; Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     n_fft = 1024
     win_length = None
     hop_length = n_fft//2 # 512
@@ -174,7 +186,7 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 19
+# %% ../02_viz.ipynb 24
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
     #print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
@@ -190,8 +202,9 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 21
+# %% ../02_viz.ipynb 26
 def plot_jukebox_embeddings(zs, aspect='auto'):
+    "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
     for i, z in enumerate(zs):
         #z = torch.squeeze(z)
