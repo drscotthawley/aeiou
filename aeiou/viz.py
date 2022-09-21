@@ -30,6 +30,8 @@ import wandb
 import numpy as np
 import pandas as pd
 
+from IPython.display import display, HTML  # just for displaying inside notebooks
+
 # %% ../02_viz.ipynb 6
 def embeddings_table(tokens):
     "make a table of embeddings for use with wandb"
@@ -63,7 +65,7 @@ def pca_point_cloud(
     tokens,                  # embeddings / latent vectors. shape = (b, d, n)
     color_scheme='batch',    # 'batch': group by sample, otherwise color sequentially
     output_type='wandbobj',  # plotly | points | wandbobj.  NOTE: WandB can do 'plotly' directly!
-    mode='lines+markers',    # plotly scatter mode.  'lines+markers' or 'markers'
+    mode='markers',    # plotly scatter mode.  'lines+markers' or 'markers'
     marker_size=3,
     ):
     "returns a 3D point cloud of the tokens using PCA"
@@ -81,11 +83,19 @@ def pca_point_cloud(
 
     point_cloud = np.array(points)
     
+    #print("tokens.shape = ",tokens.shape, ", data.shape = ",data.shape,", len(points) = ",len(points))
+    
     if output_type == 'points':
         return point_cloud
     elif output_type =='plotly':
-        fig = go.Figure(data=[go.Scatter3d(x=point_cloud[:,0], y=point_cloud[:,1], z=point_cloud[:,2],
-                    mode=mode, marker=dict(size=marker_size, opacity=0.6, color=point_cloud[:,3:6]))])
+        fig = go.Figure(data=[go.Scatter3d(
+            x=point_cloud[:,0], y=point_cloud[:,1], z=point_cloud[:,2], 
+            marker=dict(size=marker_size, opacity=0.6, color=point_cloud[:,3:6]),
+            mode=mode, 
+            # show batch index and time index in tooltips: 
+            text=[ f'bi: {i}, ti: {j}' for i in range(data.shape[0]) for j in range(data.shape[1]) ]
+            #text=[f'time index={ti:}' for ti in np.arange(n)]
+            )])
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
         return fig
     else:
@@ -93,8 +103,6 @@ def pca_point_cloud(
 
 # %% ../02_viz.ipynb 11
 # have to do a little extra stuff to make this come out in the docs.  This part taken from drscotthawley's `mrspuff` library
-from IPython.display import display, HTML 
-
 def on_colab():   # cf https://stackoverflow.com/questions/53581278/test-if-notebook-is-running-on-google-colab
     """Returns true if code is being executed on Colab, false otherwise"""
     try:
@@ -114,7 +122,7 @@ def setup_plotly(nbdev=True):
         display(HTML(js))
     plotly_already_setup = True 
     
-def show_pca_point_cloud(tokens, color_scheme='batch', mode='lines+markers'):
+def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers'):
     "display a 3d scatter plot of tokens in notebook"
     setup_plotly()
     fig = pca_point_cloud(tokens, color_scheme=color_scheme, output_type='plotly', mode=mode)
