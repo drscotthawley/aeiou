@@ -83,9 +83,7 @@ def pca_point_cloud(
             points.append([data[bi,n,0], data[bi,n,1], data[bi,n,2], r, g, b])
 
     point_cloud = np.array(points)
-    
-    #print("tokens.shape = ",tokens.shape, ", data.shape = ",data.shape,", len(points) = ",len(points))
-    
+        
     if output_type == 'points':
         return point_cloud
     elif output_type =='plotly':
