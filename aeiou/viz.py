@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['plotly_already_setup', 'embeddings_table', 'proj_pca', 'pca_point_cloud', 'on_colab', 'setup_plotly',
            'show_pca_point_cloud', 'print_stats', 'spectrogram_image', 'audio_spectrogram_image',
-           'tokens_spectrogram_image', 'plot_jukebox_embeddings']
+           'plot_jukebox_embeddings']
 
 # %% ../02_viz.ipynb 5
 import math
@@ -148,7 +148,7 @@ def print_stats(waveform, sample_rate=None, src=None, print=print):
     print('')
 
 # %% ../02_viz.ipynb 20
-def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[-60,20], justimage=False):
+def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[35,120], justimage=False):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
     canvas = FigureCanvasAgg(fig)
@@ -174,7 +174,7 @@ def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=N
     return im
 
 # %% ../02_viz.ipynb 21
-def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db_range=[-60,20], justimage=False, log=False):
+def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db_range=[35,120], justimage=False, log=False):
     "Wrapper for above, does Mel scale; Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     n_fft = 1024
     win_length = None
@@ -193,22 +193,6 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
         print(f"melspec.shape = {melspec.shape}")
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
-
-# %% ../02_viz.ipynb 24
-def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
-    embeddings = rearrange(tokens, 'b d n -> (b n) d') 
-    #print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
-    fig = Figure(figsize=(10, 4), dpi=100)
-    canvas = FigureCanvasAgg(fig)
-    axs = fig.add_subplot()
-    axs.set_title(title or 'Embeddings')
-    axs.set_ylabel(ylabel)
-    axs.set_xlabel('time frame')
-    im = axs.imshow(embeddings.cpu().numpy().T, origin='lower', aspect=aspect, interpolation='none') #.T because numpy is x/y 'backwards'
-    fig.colorbar(im, ax=axs)
-    canvas.draw()
-    rgba = np.asarray(canvas.buffer_rgba())
-    return Image.fromarray(rgba)
 
 # %% ../02_viz.ipynb 26
 def plot_jukebox_embeddings(zs, aspect='auto'):
