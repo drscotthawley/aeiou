@@ -93,7 +93,7 @@ def pca_point_cloud(
 
 # %% ../02_viz.ipynb 11
 # have to do a little extra stuff to make this come out in the docs.  This part taken from drscotthawley's `mrspuff` library
-from IPython.display import display, HTML  # TODO: add jupyter/IPython to aeiou requirements?
+from IPython.display import display, HTML 
 
 def on_colab():   # cf https://stackoverflow.com/questions/53581278/test-if-notebook-is-running-on-google-colab
     """Returns true if code is being executed on Colab, false otherwise"""
