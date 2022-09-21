@@ -1,0 +1,9 @@
+project:
+  output-dir: _docs
+
+website:
+  title: "aeiou"
+  site-url: "https://drscotthawley.github.io/aeiou/"
+  description: "audio engineering i/o utils"
+  repo-branch: main
+  repo-url: "https://github.com/drscotthawley/aeiou/"

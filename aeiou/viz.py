@@ -71,7 +71,7 @@ def pca_point_cloud(
     ):
     "returns a 3D point cloud of the tokens using PCA"
     data = proj_pca(tokens).cpu().numpy()
-    points = []
+    points = [] 
     if color_scheme=='batch':
         cmap, norm = cm.tab20, Normalize(vmin=0, vmax=data.shape[0])
     else: 
