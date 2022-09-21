@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['plotly_already_setup', 'embeddings_table', 'proj_pca', 'pca_point_cloud', 'on_colab', 'setup_plotly',
            'show_pca_point_cloud', 'print_stats', 'spectrogram_image', 'audio_spectrogram_image',
-           'plot_jukebox_embeddings']
+           'tokens_spectrogram_image', 'plot_jukebox_embeddings']
 
 # %% ../02_viz.ipynb 5
 import math
@@ -194,7 +194,23 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 26
+# %% ../02_viz.ipynb 25
+def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
+    embeddings = rearrange(tokens, 'b d n -> (b n) d') 
+    #print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
+    fig = Figure(figsize=(10, 4), dpi=100)
+    canvas = FigureCanvasAgg(fig)
+    axs = fig.add_subplot()
+    axs.set_title(title or 'Embeddings')
+    axs.set_ylabel(ylabel)
+    axs.set_xlabel('time frame')
+    im = axs.imshow(embeddings.cpu().numpy().T, origin='lower', aspect=aspect, interpolation='none') #.T because numpy is x/y 'backwards'
+    fig.colorbar(im, ax=axs)
+    canvas.draw()
+    rgba = np.asarray(canvas.buffer_rgba())
+    return Image.fromarray(rgba)
+
+# %% ../02_viz.ipynb 27
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
