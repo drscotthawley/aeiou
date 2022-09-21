@@ -66,7 +66,8 @@ def pca_point_cloud(
     color_scheme='batch',    # 'batch': group by sample, otherwise color sequentially
     output_type='wandbobj',  # plotly | points | wandbobj.  NOTE: WandB can do 'plotly' directly!
     mode='markers',    # plotly scatter mode.  'lines+markers' or 'markers'
-    marker_size=3,
+    size=3,            # size of the dots
+    line=dict(color='rgba(10,10,10,0.01)'),  # if mode='lines+markers', plotly line specifier. cf. https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.scatter3d.html#plotly.graph_objects.scatter3d.Line
     ):
     "returns a 3D point cloud of the tokens using PCA"
     data = proj_pca(tokens).cpu().numpy()
@@ -90,11 +91,11 @@ def pca_point_cloud(
     elif output_type =='plotly':
         fig = go.Figure(data=[go.Scatter3d(
             x=point_cloud[:,0], y=point_cloud[:,1], z=point_cloud[:,2], 
-            marker=dict(size=marker_size, opacity=0.6, color=point_cloud[:,3:6]),
+            marker=dict(size=size, opacity=0.6, color=point_cloud[:,3:6]),
             mode=mode, 
             # show batch index and time index in tooltips: 
-            text=[ f'bi: {i}, ti: {j}' for i in range(data.shape[0]) for j in range(data.shape[1]) ]
-            #text=[f'time index={ti:}' for ti in np.arange(n)]
+            text=[ f'bi: {i}, ti: {j}' for i in range(data.shape[0]) for j in range(data.shape[1]) ],
+            line=line,
             )])
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
         return fig
@@ -122,13 +123,13 @@ def setup_plotly(nbdev=True):
         display(HTML(js))
     plotly_already_setup = True 
     
-def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers'):
+def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers', line=dict(color='rgba(10,10,10,0.01)')):
     "display a 3d scatter plot of tokens in notebook"
     setup_plotly()
-    fig = pca_point_cloud(tokens, color_scheme=color_scheme, output_type='plotly', mode=mode)
+    fig = pca_point_cloud(tokens, color_scheme=color_scheme, output_type='plotly', mode=mode, line=line)
     fig.show()
 
-# %% ../02_viz.ipynb 15
+# %% ../02_viz.ipynb 17
 def print_stats(waveform, sample_rate=None, src=None, print=print):
     "print stats about waveform. Taken verbatim from pytorch docs."
     if src:
@@ -147,7 +148,7 @@ def print_stats(waveform, sample_rate=None, src=None, print=print):
     print(f"{waveform}")
     print('')
 
-# %% ../02_viz.ipynb 20
+# %% ../02_viz.ipynb 22
 def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[35,120], justimage=False):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
@@ -173,7 +174,7 @@ def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=N
         #print(f"im.size = {im.size}")
     return im
 
-# %% ../02_viz.ipynb 21
+# %% ../02_viz.ipynb 23
 def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db_range=[35,120], justimage=False, log=False):
     "Wrapper for above, does Mel scale; Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     n_fft = 1024
@@ -194,7 +195,7 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 25
+# %% ../02_viz.ipynb 27
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
     #print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
@@ -210,7 +211,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 27
+# %% ../02_viz.ipynb 29
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
