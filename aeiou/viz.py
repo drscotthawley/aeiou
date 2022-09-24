@@ -313,7 +313,7 @@ def playable_spectrogram(
 
     return wandb.Html(html_file_name) if not html_only else html_file_name
 
-# %% ../02_viz.ipynb 30
+# %% ../02_viz.ipynb 31
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     "for visualizing embeddings in a spectrogram-like way"
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
@@ -330,7 +330,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 32
+# %% ../02_viz.ipynb 33
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
