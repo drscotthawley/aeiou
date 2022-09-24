@@ -2,8 +2,8 @@
 
 # %% auto 0
 __all__ = ['plotly_already_setup', 'embeddings_table', 'proj_pca', 'pca_point_cloud', 'on_colab', 'setup_plotly',
-           'show_pca_point_cloud', 'print_stats', 'spectrogram_image', 'audio_spectrogram_image',
-           'tokens_spectrogram_image', 'plot_jukebox_embeddings']
+           'show_pca_point_cloud', 'print_stats', 'mel_spectrogram', 'spectrogram_image', 'audio_spectrogram_image',
+           'generate_melspec', 'playable_spectrogram', 'tokens_spectrogram_image', 'plot_jukebox_embeddings']
 
 # %% ../02_viz.ipynb 5
 import math
@@ -15,8 +15,6 @@ from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 import numpy as np
 from PIL import Image
-import plotly.graph_objects as go
-
 
 import torch
 from torch import optim, nn
@@ -31,6 +29,16 @@ import numpy as np
 import pandas as pd
 
 from IPython.display import display, HTML  # just for displaying inside notebooks
+
+from .core import load_audio
+
+# for playable spectrograms:
+import plotly.graph_objects as go
+import holoviews as hv 
+import panel as pn
+from bokeh.resources import INLINE
+hv.extension("bokeh", logo=False)
+from scipy.signal import spectrogram
 
 # %% ../02_viz.ipynb 6
 def embeddings_table(tokens):
@@ -146,12 +154,34 @@ def print_stats(waveform, sample_rate=None, src=None, print=print):
     print(f"{waveform}")
     print('')
 
+# %% ../02_viz.ipynb 21
+def mel_spectrogram(waveform, power=2.0, sample_rate=48000, db=False, n_fft=1024, n_mels=128, debug=False):
+    "calculates data array for mel spectrogram (in however many channels)"
+    win_length = None
+    hop_length = n_fft//2 # 512
+
+    mel_spectrogram_op = T.MelSpectrogram(
+        sample_rate=sample_rate, n_fft=n_fft, win_length=win_length, 
+        hop_length=hop_length, center=True, pad_mode="reflect", power=power, 
+        norm='slaney', onesided=True, n_mels=n_mels, mel_scale="htk")
+
+    melspec = mel_spectrogram_op(waveform.float())
+    if db: 
+        amp_to_db_op = T.AmplitudeToDB()
+        melspec = amp_to_db_op(melspec)
+    if debug:
+        print_stats(melspec, print=print) 
+        print(f"torch.max(melspec) = {torch.max(melspec)}")
+        print(f"melspec.shape = {melspec.shape}")
+    return melspec
+
 # %% ../02_viz.ipynb 22
 def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[35,120], justimage=False):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
     canvas = FigureCanvasAgg(fig)
     axs = fig.add_subplot()
+    spec = spec.squeeze()
     im = axs.imshow(librosa.power_to_db(spec), origin='lower', aspect=aspect, vmin=db_range[0], vmax=db_range[1])
     if xmax:
         axs.set_xlim((0, xmax))
@@ -173,28 +203,119 @@ def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=N
     return im
 
 # %% ../02_viz.ipynb 23
-def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db_range=[35,120], justimage=False, log=False):
-    "Wrapper for above, does Mel scale; Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
-    n_fft = 1024
-    win_length = None
-    hop_length = n_fft//2 # 512
-    n_mels = 128
-
-    mel_spectrogram_op = T.MelSpectrogram(
-        sample_rate=sample_rate, n_fft=n_fft, win_length=win_length, 
-        hop_length=hop_length, center=True, pad_mode="reflect", power=power, 
-        norm='slaney', onesided=True, n_mels=n_mels, mel_scale="htk")
-
-    melspec = mel_spectrogram_op(waveform.float())
-    if log:
-        print_stats(melspec, print=print) 
-        print(f"torch.max(melspec) = {torch.max(melspec)}")
-        print(f"melspec.shape = {melspec.shape}")
+def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db=False, db_range=[35,120], justimage=False, log=False):
+    "Wrapper for calling above two routines at once, does Mel scale; Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
+    melspec = mel_spectrogram(waveform, power=power, db=db, sample_rate=sample_rate, debug=log)
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
 # %% ../02_viz.ipynb 27
+# @scottire's code, two typos fixed:  ("sr"->"sample_rate" and "mel_spectrogram" -> "mel_spectrogram_op")
+def generate_melspec(audio_data, sample_rate=48000, power=2.0, n_fft = 1024, win_length = None, hop_length = None, n_mels = 128):
+  if hop_length is None:
+     hop_length = n_fft//2
+
+  # convert to torch
+  audio_data = torch.tensor(audio_data, dtype=torch.float32)
+
+  mel_spectrogram_op = T.MelSpectrogram(
+      sample_rate=sample_rate,
+      n_fft=n_fft,
+      win_length=win_length,
+      hop_length=hop_length,
+      center=True,
+      pad_mode="reflect",
+      power=power,
+      norm="slaney",
+      onesided=True,
+      n_mels=n_mels,
+      mel_scale="htk",
+  )
+
+  melspec = mel_spectrogram_op(audio_data).numpy()
+  mel_db = np.flipud(librosa.power_to_db(melspec))
+  return mel_db
+
+def playable_spectrogram(
+    waveform,                # audio, PyTorch tensor 
+    sample_rate=48000,       # sample rate in Hz
+    specs:str=['all_specs'], # see docstring below
+    layout:str='row',        # 'row' or 'grid'
+    height=170,              # height of spectrogram image
+    width=400,               # width of spectrogram image
+    html_only=False,         # disable wandb wrapping of output (for in-notebook viewing)
+    debug=True               # flag for internal print statements
+    ):
+    '''
+    Takes a tensor input and returns a [wandb.]HTML object with spectrograms of the audio
+    specs : 
+      "all_specs", spetrograms only
+      "all", all plots
+      "melspec", melspectrogram only
+      "spec", spectrogram only
+      "waveform", waveform only, equivalent to wandb.Audio object
+    '''
+    
+    # need to convert to int for Panel Audio element
+    audio_data =  np.clip( waveform.cpu().numpy()*32768 , -32768, 32768).astype('int16')
+
+    duration =  audio_data.shape[-1]/sample_rate 
+    if len(audio_data.shape) > 1: 
+        audio_data = audio_data[0,:] # get one channel
+
+    # Audio widget
+    audio = pn.pane.Audio(audio_data, sample_rate=sample_rate, name='Audio', throttle=100)
+
+    # Spectrogram plot from scipy.signal
+    if ('spec' in specs) or ('all_specs' in specs) or ('all' in specs):
+        f, t, sxx = spectrogram(audio_data, sample_rate)
+        spec_gram = hv.Image((t, f, np.log10(sxx)), ["Time (s)", "Frequency (hz)"]).opts(
+            width=width, height=height, labelled=[], axiswise=True, color_levels=512, cmap='viridis')
+    else: 
+        spec_gram = None
+
+    # Melspectogram plot
+    if ('melspec' in specs) or ('all_specs' in specs) or ('all' in specs):
+        mel_db = generate_melspec(audio_data, sample_rate=sample_rate, power=2.0, n_fft = 1024, n_mels = 128)
+        #print("mel_db.min, mel_db.max = ",np.max(mel_db),np.min(mel_db))
+        #mel_db = 115+mel_spectrogram(waveform, sample_rate=sample_rate, db=True).cpu().numpy()
+        #print("mel_db.min, mel_db.max = ",np.max(mel_db),np.min(mel_db))
+        melspec_gram = hv.Image(mel_db, bounds=(0, 0, duration, mel_db.max()), kdims=["Time (s)", "Mel Freq"]).opts(
+            width=width, height=height, labelled=[], axiswise=True, color_levels=512, cmap='viridis')
+    else:
+        melspec_gram = None
+
+  # Waveform plot
+    if ('waveform' in specs) or ('all' in specs):
+        time = np.linspace(0, len(audio_data)/sample_rate, num=len(audio_data))
+        line_plot = hv.Curve((time, audio_data), ["Time (s)", "amplitude"]).opts(
+            width=width, height=height, axiswise=True)
+    line_plot = None
+
+    # Add HTML components
+    line = hv.VLine(0).opts(color='red')
+    line2 = hv.VLine(0).opts(color='green')
+    line3 = hv.VLine(0).opts(color='white')
+
+    slider = pn.widgets.FloatSlider(end=duration, visible=False, step=0.001)
+    slider.jslink(audio, value='time', bidirectional=True)
+    slider.jslink(line, value='glyph.location')
+    slider.jslink(line2, value='glyph.location')
+    slider.jslink(line3, value='glyph.location')
+
+    # Create HTML layout
+    html_file_name = "audio_spec.html"
+
+    if layout == 'stacked': 
+        combined = pn.GridBox(audio, spec_gram * line, None, melspec_gram * line3, slider, ncols=2, nrows=2).save(html_file_name)
+    else: 
+        combined = pn.Row(audio, spec_gram * line, melspec_gram * line3, slider).save(html_file_name)
+
+    return wandb.Html(html_file_name) if not html_only else html_file_name
+
+# %% ../02_viz.ipynb 30
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
+    "for visualizing embeddings in a spectrogram-like way"
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
     #print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
     fig = Figure(figsize=(10, 4), dpi=100)
@@ -209,7 +330,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 29
+# %% ../02_viz.ipynb 32
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
