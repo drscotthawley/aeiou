@@ -210,7 +210,10 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
 # %% ../02_viz.ipynb 27
-# @scottire's code, two typos fixed:  ("sr"->"sample_rate" and "mel_spectrogram" -> "mel_spectrogram_op")
+# Original code by Scott Condron (@scottire) of Weights and Biases, edited by @drscotthawley
+# cf. @scottire's original code here: https://gist.github.com/scottire/a8e5b74efca37945c0f1b0670761d568
+# and Morgan McGuire's edit here; https://github.com/morganmcg1/wandb_spectrogram
+
 def generate_melspec(audio_data, sample_rate=48000, power=2.0, n_fft = 1024, win_length = None, hop_length = None, n_mels = 128):
   if hop_length is None:
      hop_length = n_fft//2
@@ -243,6 +246,7 @@ def playable_spectrogram(
     layout:str='row',        # 'row' or 'grid'
     height=170,              # height of spectrogram image
     width=400,               # width of spectrogram image
+    cmap='viridis',           # colormap string for Holoviews, see https://holoviews.org/user_guide/Colormaps.html
     html_only=False,         # disable wandb wrapping of output (for in-notebook viewing)
     debug=True               # flag for internal print statements
     ):
@@ -260,37 +264,11 @@ def playable_spectrogram(
     audio_data =  np.clip( waveform.cpu().numpy()*32768 , -32768, 32768).astype('int16')
 
     duration =  audio_data.shape[-1]/sample_rate 
-    if len(audio_data.shape) > 1: 
+    if len(audio_data.shape) > 1:
         audio_data = audio_data[0,:] # get one channel
 
     # Audio widget
-    audio = pn.pane.Audio(audio_data, sample_rate=sample_rate, name='Audio', throttle=100)
-
-    # Spectrogram plot from scipy.signal
-    if ('spec' in specs) or ('all_specs' in specs) or ('all' in specs):
-        f, t, sxx = spectrogram(audio_data, sample_rate)
-        spec_gram = hv.Image((t, f, np.log10(sxx)), ["Time (s)", "Frequency (hz)"]).opts(
-            width=width, height=height, labelled=[], axiswise=True, color_levels=512, cmap='viridis')
-    else: 
-        spec_gram = None
-
-    # Melspectogram plot
-    if ('melspec' in specs) or ('all_specs' in specs) or ('all' in specs):
-        mel_db = generate_melspec(audio_data, sample_rate=sample_rate, power=2.0, n_fft = 1024, n_mels = 128)
-        #print("mel_db.min, mel_db.max = ",np.max(mel_db),np.min(mel_db))
-        #mel_db = 115+mel_spectrogram(waveform, sample_rate=sample_rate, db=True).cpu().numpy()
-        #print("mel_db.min, mel_db.max = ",np.max(mel_db),np.min(mel_db))
-        melspec_gram = hv.Image(mel_db, bounds=(0, 0, duration, mel_db.max()), kdims=["Time (s)", "Mel Freq"]).opts(
-            width=width, height=height, labelled=[], axiswise=True, color_levels=512, cmap='viridis')
-    else:
-        melspec_gram = None
-
-  # Waveform plot
-    if ('waveform' in specs) or ('all' in specs):
-        time = np.linspace(0, len(audio_data)/sample_rate, num=len(audio_data))
-        line_plot = hv.Curve((time, audio_data), ["Time (s)", "amplitude"]).opts(
-            width=width, height=height, axiswise=True)
-    line_plot = None
+    audio = pn.pane.Audio(audio_data, sample_rate=sample_rate, name='Audio', throttle=10)
 
     # Add HTML components
     line = hv.VLine(0).opts(color='red')
@@ -303,17 +281,43 @@ def playable_spectrogram(
     slider.jslink(line2, value='glyph.location')
     slider.jslink(line3, value='glyph.location')
 
+    # Spectogram plot
+    if ('spec' in specs) or ('all_specs' in specs) or ('all' in specs):
+        f, t, sxx = spectrogram(audio_data, sample_rate)
+        spec_gram_hv = hv.Image((t, f, np.log10(sxx)), ["Time (s)", "Frequency (hz)"]).opts(
+            width=width, height=height, labelled=[], axiswise=True, color_levels=512, cmap=cmap) * line
+    else: 
+        spec_gram_hv = None
+
+  # Melspectogram plot
+    if ('melspec' in specs) or ('all_specs' in specs) or ('all' in specs):
+        mel_db = generate_melspec(audio_data, sample_rate=sample_rate, power=2.0, n_fft = 1024, n_mels = 128)
+        melspec_gram_hv = hv.Image(mel_db, bounds=(0, 0, duration, mel_db.max()), kdims=["Time (s)", "Mel Freq"]).opts(
+            width=width, height=height, labelled=[], axiswise=True, color_levels=512, cmap=cmap) * line3
+    else:
+        melspec_gram_hv = None
+
+  # Waveform plot
+    if ('waveform' in specs) or ('all' in specs):
+        time = np.linspace(0, len(audio_data)/sample_rate, num=len(audio_data))
+        line_plot_hv = hv.Curve((time, audio_data), ["Time (s)", "amplitude"]).opts(
+            width=width, height=height, axiswise=True) * line2
+    else:
+        line_plot_hv = None
+
+
     # Create HTML layout
     html_file_name = "audio_spec.html"
 
-    if layout == 'stacked': 
-        combined = pn.GridBox(audio, spec_gram * line, None, melspec_gram * line3, slider, ncols=2, nrows=2).save(html_file_name)
+    if layout == 'grid': 
+        #print('doing GRID')
+        combined = pn.GridBox(audio, spec_gram_hv, line_plot_hv, melspec_gram_hv, slider, ncols=2, nrows=2).save(html_file_name)
     else: 
-        combined = pn.Row(audio, spec_gram * line, melspec_gram * line3, slider).save(html_file_name)
+        combined = pn.Row(audio, line_plot_hv, spec_gram_hv, melspec_gram_hv, slider).save(html_file_name)
 
     return wandb.Html(html_file_name) if not html_only else html_file_name
 
-# %% ../02_viz.ipynb 31
+# %% ../02_viz.ipynb 32
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     "for visualizing embeddings in a spectrogram-like way"
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
@@ -330,7 +334,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 33
+# %% ../02_viz.ipynb 34
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
