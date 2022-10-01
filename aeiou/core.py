@@ -13,22 +13,23 @@ import os
 # %% ../00_core.ipynb 6
 def load_audio(
     filename:str,     # name of file to load
-    sr=48000,         # sample rate in Hz 
+    sr=48000,         # sample rate in Hz
+    verbose=True,     # whether or not to print notices of resampling
     )->torch.tensor:
     "this loads an audio file as a torch tensor"
     audio, in_sr = torchaudio.load(filename)
     if in_sr != sr:
-        print(f"Resampling {filename} from {in_sr} Hz to {sr} Hz",flush=True)
+        if verbose: print(f"Resampling {filename} from {in_sr} Hz to {sr} Hz",flush=True)
         resample_tf = T.Resample(in_sr, sr)
         audio = resample_tf(audio)
     return audio
 
-# %% ../00_core.ipynb 10
+# %% ../00_core.ipynb 11
 def audio_float_to_int(waveform):
     "converts torch float to numpy int16 (for playback in notebooks)"
     return np.clip( waveform.cpu().numpy()*32768 , -32768, 32768).astype('int16')
 
-# %% ../00_core.ipynb 12
+# %% ../00_core.ipynb 13
 def is_silence(
     audio,       # torch tensor of (multichannel) audio
     thresh=-60,  # threshold in dB below which we declare to be silence
@@ -37,7 +38,7 @@ def is_silence(
     dBmax = 20*torch.log10(torch.flatten(audio.abs()).max()).cpu().numpy()
     return dBmax < thresh
 
-# %% ../00_core.ipynb 16
+# %% ../00_core.ipynb 17
 def makedir(
     path:str,              # directory or nested set of directories
     ):
@@ -49,7 +50,7 @@ def makedir(
     except:                # don't really care about errors
         pass
 
-# %% ../00_core.ipynb 18
+# %% ../00_core.ipynb 19
 def fast_scandir(
     dir:str,  # top-level directory at which to begin scanning
     ext:list  # list of allowed file extensions
@@ -76,7 +77,7 @@ def fast_scandir(
         files.extend(f)
     return subfolders, files
 
-# %% ../00_core.ipynb 22
+# %% ../00_core.ipynb 23
 def get_audio_filenames(
     paths:list   # directories in which to search
     ):

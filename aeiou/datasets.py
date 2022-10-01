@@ -145,7 +145,8 @@ class AudioDataset(torch.utils.data.Dataset):
         redraw_silence=True, # a chunk containing silence will be replaced with a new one
         silence_thresh=-60,  # threshold in dB below which we declare to be silence
         max_redraws=2,        # when redrawing silences, don't do it more than this many
-        augs='Stereo(), PhaseFlipper()' # list of augmentation transforms **after PadCrop**, as a string
+        augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
+        verbose=False,       # whether to print notices of reasampling or not
         ):
         super().__init__()
     
@@ -167,6 +168,7 @@ class AudioDataset(torch.utils.data.Dataset):
         self.max_redraws = max_redraws
         self.sr = sample_rate
         self.cache_training_data = cache_training_data
+        self.verbose = verbose
 
         self.filenames = get_audio_filenames(paths)
         print(f"AudioDataset:{len(self.filenames)} files found.")
@@ -177,7 +179,7 @@ class AudioDataset(torch.utils.data.Dataset):
         self.convert_tensor = VT.ToTensor()
 
     def load_file_ind(self, file_list,i): # used when caching training data
-        return load_audio(file_list[i]).cpu()
+        return load_audio(file_list[i], verbose=self.verbose).cpu()
 
     def get_data_range(self): # for parallel runs, only grab part of the data -- OBVIATED BY CHUNKING.
         start, stop = 0, len(self.filenames)
@@ -211,7 +213,7 @@ class AudioDataset(torch.utils.data.Dataset):
             if self.cache_training_data:
                 audio = self.audio_files[idx] # .copy()
             else:
-                audio = load_audio(audio_filename, sr=self.sr)
+                audio = load_audio(audio_filename, sr=self.sr, verbose=self.verbose)
 
             #Run augmentations on this sample (including random crop)
             if self.augs is not None:
