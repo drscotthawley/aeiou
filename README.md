@@ -27,6 +27,11 @@ See individual documentation pages for more specific instructions on how
 these can be used. Note that this is *research code*, so it’s a) in flux
 and b) in need of improvements to documenation.
 
+## Documentation
+
+Documentation for this library is hosted on the [aeiou GitHub Pages
+site](https://drscotthawley.github.io/aeiou/).
+
 ## Contributing
 
 Contributions are welcome – especially for improvements to
