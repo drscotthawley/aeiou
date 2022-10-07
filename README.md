@@ -42,14 +42,15 @@ documentation! To contribute:
     notebooks.
 
 2.  [Install nbdev](https://nbdev.fast.ai/getting_started.html#install)
-    and then you can edit the Jupyter notebooks. To prepare your code
-    for `git commit`, run `nbdev_prepare` first.
+    and then you can edit the Jupyter notebooks.
 
-3.  If that succeeds, you can do `git add *.ipyb aeiou/*.py; git commit`
+3.  After editing notebooks, run `nbdev_prepare`
+
+4.  If that succeeds, you can do `git add *.ipyb aeiou/*.py; git commit`
     and then `git push` to get your changes to back to your fork on
     GitHub.
 
-4.  Then send a Pull Request from your fork to the main `aeiou`
+5.  Then send a Pull Request from your fork to the main `aeiou`
     repository.
 
 ## Attribution
