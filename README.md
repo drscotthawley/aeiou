@@ -46,9 +46,9 @@ documentation! To contribute:
 
 3.  After editing notebooks, run `nbdev_prepare`
 
-4.  If that succeeds, you can do `git add *.ipyb aeiou/*.py; git commit`
-    and then `git push` to get your changes to back to your fork on
-    GitHub.
+4.  If that succeeds, you can do
+    `git add *.ipynb aeiou/*.py; git commit` and then `git push` to get
+    your changes to back to your fork on GitHub.
 
 5.  Then send a Pull Request from your fork to the main `aeiou`
     repository.
