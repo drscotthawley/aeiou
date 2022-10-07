@@ -7,7 +7,7 @@ Pronounced “[ayoo](https://youtu.be/Hv6RbEOlqRo?t=24)”
 
 ## Install
 
-We recommend you install the latest version from GitHub via
+It is recommended you install the latest version from GitHub via
 
 ``` sh
 pip install git+https://github.com/drscotthawley/aeiou.git
@@ -46,3 +46,21 @@ documentation! To contribute:
 
 4.  Then send a Pull Request from your fork to the main `aeiou`
     repository.
+
+## Attribution
+
+``` bibtex
+@misc{aeiou,
+  author = {Scott H. Hawley},
+  title = {aeiou: audio engineering i/o utilities},
+  year  = {2022},
+  url   = {https://github.com/drscotthawley/aeiou},
+}
+```
+
+Copyright (c) Scott H. Hawley, 2022.
+
+## License
+
+[License](https://github.com/drscotthawley/aeiou/blob/main/LICENSE) is
+APACHE 2.0.
