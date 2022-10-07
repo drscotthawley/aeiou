@@ -22,6 +22,27 @@ pip install aeiou
 ## How to use
 
 This is a series of utility routines developed in support of multiple
-projects within [Harmonai](https://www.harmonai.org/). See individual
-documentation pages for more specific instructions on how these can be
-used.
+projects within the [Harmonai](https://www.harmonai.org/) organization.
+See individual documentation pages for more specific instructions on how
+these can be used. Note that this is *research code*, so it’s a) in flux
+and b) in need of improvements to documenation.
+
+## Contributing
+
+Contributions are welcome – especially for improvements to
+documentation! To contribute:
+
+1.  Fork this repo and then clone your fork. This library is written
+    entirely in [nbdev](https://nbdev.fast.ai/) version 2, using Jupyter
+    notebooks.
+
+2.  [Install nbdev](https://nbdev.fast.ai/getting_started.html#install)
+    and then you can edit the Jupyter notebooks. To prepare your code
+    for `git commit`, run `nbdev_prepare` first.
+
+3.  If that succeeds, you can do `git add *.ipyb aeiou/*.py; git commit`
+    and then `git push` to get your changes to back to your fork on
+    GitHub.
+
+4.  Then send a Pull Request from your fork to the main `aeiou`
+    repository.
