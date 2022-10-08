@@ -17,6 +17,7 @@ def load_audio(
     filename:str,     # name of file to load
     sr=48000,         # sample rate in Hz
     verbose=True,     # whether or not to print notices of resampling
+    normalize=False,  # Load to full dB range
     )->torch.tensor:
     "this loads an audio file as a torch tensor"
     audio, in_sr = torchaudio.load(filename)

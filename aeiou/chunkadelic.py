@@ -22,6 +22,7 @@ def blow_chunks(
     sr=48000,            # audio sample rate in Hz
     overlap=0.5,         # fraction of each chunk to overlap between hops
     strip=False,    # strip silence: chunks with max power in dB below this value will not be saved to files
+    normalize=False,    # nomalize audio: load data as full DB range 
     thresh=-70      # threshold in dB for determining what counts as silence 
     ):
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
@@ -66,8 +67,8 @@ def process_one_file(
         print(f"ERROR: Something went wrong with name of input file {filename}. Skipping.",flush=True) 
         return 
     try:
-        audio = load_audio(filename, sr=args.sr)
-        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, overlap=args.overlap, strip=args.strip, thresh=args.thresh)
+        audio = load_audio(filename, sr=args.sr, normalize=args.normalize)
+        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, overlap=args.overlap, strip=args.strip, normalize=args.normalize, thresh=args.thresh)
     except Exception as e: 
         print(f"Error loading {filename} or writing chunks. Skipping.", flush=True)
 
@@ -80,6 +81,7 @@ def main():
     parser.add_argument('--sr', type=int, default=48000, help='Output sample rate')
     parser.add_argument('--overlap', type=float, default=0.5, help='Overlap factor')
     parser.add_argument('--strip', action='store_true', help='Strips silence: chunks with max dB below <thresh> are not outputted')
+    parser.add_argument('--normalize', action='store_true', help='Nomalize audio: load data as full DB range')
     parser.add_argument('--thresh', type=int, default=-70, help='threshold in dB for determining what constitutes silence')
     parser.add_argument('--workers', type=int, default=min(32, os.cpu_count() + 4), help='Maximum number of workers to use (default: all)')
     parser.add_argument('--nomix', action='store_true',  help='(BDCT Dataset specific) exclude output of "*/Audio Files/*Mix*"')
