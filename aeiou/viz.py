@@ -247,7 +247,7 @@ def generate_melspec(audio_data, sample_rate=48000, power=2.0, n_fft = 1024, win
 def playable_spectrogram(
     waveform,                # audio, PyTorch tensor 
     sample_rate=48000,       # sample rate in Hz
-    specs:str='wave_mel', # see docstring below
+    specs:str='all', # see docstring below
     layout:str='row',        # 'row' or 'grid'
     height=170,              # height of spectrogram image
     width=400,               # width of spectrogram image
