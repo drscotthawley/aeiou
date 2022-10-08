@@ -22,7 +22,6 @@ def blow_chunks(
     sr=48000,            # audio sample rate in Hz
     overlap=0.5,         # fraction of each chunk to overlap between hops
     strip=False,    # strip silence: chunks with max power in dB below this value will not be saved to files
-    normalize=False,    # nomalize audio: load data as full DB range 
     thresh=-70      # threshold in dB for determining what counts as silence 
     ):
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
@@ -68,7 +67,7 @@ def process_one_file(
         return 
     try:
         audio = load_audio(filename, sr=args.sr, normalize=args.normalize)
-        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, overlap=args.overlap, strip=args.strip, normalize=args.normalize, thresh=args.thresh)
+        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, overlap=args.overlap, strip=args.strip, thresh=args.thresh)
     except Exception as e: 
         print(f"Error loading {filename} or writing chunks. Skipping.", flush=True)
 
