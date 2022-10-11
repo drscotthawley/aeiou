@@ -37,20 +37,24 @@ site](https://drscotthawley.github.io/aeiou/).
 Contributions are welcome – especially for improvements to
 documentation! To contribute:
 
-1.  Fork this repo and then clone your fork. This library is written
-    entirely in [nbdev](https://nbdev.fast.ai/) version 2, using Jupyter
-    notebooks.
+1.  Fork this repo and then clone your fork to your local machine.
 
-2.  [Install nbdev](https://nbdev.fast.ai/getting_started.html#install)
+2.  Create a new (local) branch: `git -b mybranch` (or whatever you want
+    to call it).
+
+3.  This library is written entirely in [nbdev](https://nbdev.fast.ai/)
+    version 2, using Jupyter notebooks.
+
+4.  [Install nbdev](https://nbdev.fast.ai/getting_started.html#install)
     and then you can edit the Jupyter notebooks.
 
-3.  After editing notebooks, run `nbdev_prepare`
+5.  After editing notebooks, run `nbdev_prepare`
 
-4.  If that succeeds, you can do
+6.  If that succeeds, you can do
     `git add *.ipynb aeiou/*.py; git commit` and then `git push` to get
     your changes to back to your fork on GitHub.
 
-5.  Then send a Pull Request from your fork to the main `aeiou`
+7.  Then send a Pull Request from your fork to the main `aeiou`
     repository.
 
 ## Attribution
