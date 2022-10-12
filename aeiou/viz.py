@@ -282,7 +282,7 @@ def playable_spectrogram(
     # Audio widget
     #audio = pn.pane.Audio(audio_ints, sample_rate=sample_rate, name='Audio', throttle=10)
     tmp_audio_file = f'audio_out.wav' # holoview expects file to persist _{int(np.random.rand()*10000)}.wav' # rand number is just to allow parallel operation
-    torchaudio.save(tmp_audio_file, waveform,sample_rate)
+    torchaudio.save(tmp_audio_file, waveform.cpu() ,sample_rate)
     audio = pn.pane.Audio(tmp_audio_file,  name='Audio', throttle=10)
     #os.remove(tmp_audio_file)  # but we don't want a ton of files to accumulate on the disk 
 
