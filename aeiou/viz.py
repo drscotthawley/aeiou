@@ -7,6 +7,7 @@ __all__ = ['plotly_already_setup', 'embeddings_table', 'proj_pca', 'pca_point_cl
 
 # %% ../02_viz.ipynb 5
 import math
+import os
 from pathlib import Path
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import matplotlib.cm as cm
@@ -209,7 +210,7 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 27
+# %% ../02_viz.ipynb 29
 # Original code by Scott Condron (@scottire) of Weights and Biases, edited by @drscotthawley
 # cf. @scottire's original code here: https://gist.github.com/scottire/a8e5b74efca37945c0f1b0670761d568
 # and Morgan McGuire's edit here; https://github.com/morganmcg1/wandb_spectrogram
@@ -273,13 +274,17 @@ def playable_spectrogram(
 
     duration =  audio_data.shape[-1]/sample_rate 
     if len(audio_data.shape) > 1:
-        mono_audio = audio_data[0,:] # MONO ONLY get one channel
+        mono_audio = audio_data[0,:] # MONO ONLY get one channel, for spectrograms
 
+    # for the audio widget, it works best if you save-a-file-read-a-file
     # need to convert to int for Panel Audio element
-    mono_ints =  np.clip( mono_audio*32768 , -32768, 32768).astype('int16')
-
+    #audio_ints =  np.clip( audio_data*32768 , -32768, 32768).astype('int16')
     # Audio widget
-    audio = pn.pane.Audio(mono_ints, sample_rate=sample_rate, name='Audio', throttle=10)
+    #audio = pn.pane.Audio(audio_ints, sample_rate=sample_rate, name='Audio', throttle=10)
+    tmp_audio_file = f'audio_out.wav' # holoview expects file to persist _{int(np.random.rand()*10000)}.wav' # rand number is just to allow parallel operation
+    torchaudio.save(tmp_audio_file, waveform,sample_rate)
+    audio = pn.pane.Audio(tmp_audio_file,  name='Audio', throttle=10)
+    #os.remove(tmp_audio_file)  # but we don't want a ton of files to accumulate on the disk 
 
     # Add HTML components
     line = hv.VLine(0).opts(color='red')
@@ -336,13 +341,14 @@ def playable_spectrogram(
     else: #  'row'
         combined = pn.Row(audio, line_plot_hv,  melspec_gram_hv, spec_gram_hv, slider)
         
+
     if output_type == 'live':
         return combined
     
     combined = combined.save(html_file_name)
     return wandb.Html(html_file_name) if output_type=='wandb' else html_file_name
 
-# %% ../02_viz.ipynb 34
+# %% ../02_viz.ipynb 36
 def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
     "for visualizing embeddings in a spectrogram-like way"
     embeddings = rearrange(tokens, 'b d n -> (b n) d') 
@@ -359,7 +365,7 @@ def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 36
+# %% ../02_viz.ipynb 38
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
