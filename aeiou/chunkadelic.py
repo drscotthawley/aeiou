@@ -12,7 +12,7 @@ from tqdm.contrib.concurrent import process_map
 import torch
 import torchaudio
 import math
-from .core import is_silence, load_audio, makedir, get_audio_filenames
+from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio
 
 # %% ../03_chunkadelic.ipynb 7
 def blow_chunks(
@@ -26,23 +26,21 @@ def blow_chunks(
     thresh=-70      # threshold in dB for determining what counts as silence 
     ):
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
-    def conditionally_normalled_signal_tensor():
-        if norm is True: # handle the most likely improper response defaulted as global
-                norm = 'global'
-        if norm in ['global','channel']:
-            return normalize_audio(audio.shape[0], norm)
-        else:
-            return audio.shape[0]
-    
-    chunk = torch.zeros(conditionally_normalled_signal_tensor(), chunk_size)
+    chunk = torch.zeros(audio.shape[0], chunk_size)
     _, ext = os.path.splitext(new_filename)
 
+        # normalize audio if requested
+    if norm is True: # handle the most likely improper response defaulted to 'global'
+        norm = 'global'
+    if norm in ['global','channel']:
+        audio = normalize_audio(audio, norm)
+    
     start, i = 0, 0
     while start < audio.shape[-1]:
         out_filename = new_filename.replace(ext, f'--{i}'+ext) 
         end = min(start + chunk_size, audio.shape[-1])
         if end-start < chunk_size:  # needs zero padding on end
-            chunk = torch.zeros(conditionally_normalled_signal_tensor(), chunk_size)
+            chunk = torch.zeros(audio.shape[0], chunk_size)
         chunk[:,0:end-start] = audio[:,start:end]
         if (not strip) or (not is_silence(chunk, thresh=thresh)):
             torchaudio.save(out_filename, chunk, sr)
