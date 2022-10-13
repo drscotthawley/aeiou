@@ -27,9 +27,9 @@ def blow_chunks(
     ):
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
     def conditionally_normalled_signal_tensor():
-        if norm:
-            if norm is True: # handle the most likely response defaulted as global
+        if norm is True: # handle the most likely improper response defaulted as global
                 norm = 'global'
+        if norm in ['global','channel']:
             return normalize_audio(audio.shape[0], norm)
         else:
             return audio.shape[0]
