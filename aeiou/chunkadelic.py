@@ -33,6 +33,7 @@ def blow_chunks(
     if norm is True: # handle the most likely improper response defaulted to 'global'
         norm = 'global'
     if norm in ['global','channel']:
+        print(f"normalizing {new_filename} with type {norm}")
         audio = normalize_audio(audio, norm)
     
     start, i = 0, 0
