@@ -75,7 +75,7 @@ def process_one_file(
         return 
     try:
         audio = load_audio(filename, sr=args.sr)
-        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=arg.norm, overlap=args.overlap, strip=args.strip, thresh=args.thresh)
+        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=args.norm, overlap=args.overlap, strip=args.strip, thresh=args.thresh)
     except Exception as e: 
         print(f"Error loading {filename} or writing chunks. Skipping.", flush=True)
 
