@@ -36,6 +36,8 @@ def blow_chunks(
         print(f"normalizing {new_filename} with type {norm}")
         audio = normalize_audio(audio, norm)
     
+    spacing = 0.5 if spacing is 0 else spacing # handle degenerate case as a request for the defaults
+    
     start, i = 0, 0
     while start < audio.shape[-1]:
         out_filename = new_filename.replace(ext, f'--{i}'+ext) 
