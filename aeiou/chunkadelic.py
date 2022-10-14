@@ -21,7 +21,7 @@ def blow_chunks(
     chunk_size:int,      # how big each audio chunk is, in samples
     sr=48000,            # audio sample rate in Hz
     norm=False,          # normalize audio, based on the max of the absolute value [global/channel]
-    overlap=0.5,         # fraction of each chunk to overlap between hops
+    spacing=0.5,         # fraction of each chunk to advance between hops
     strip=False,    # strip silence: chunks with max power in dB below this value will not be saved to files
     thresh=-70      # threshold in dB for determining what counts as silence 
     ):
@@ -36,6 +36,8 @@ def blow_chunks(
         print(f"normalizing {new_filename} with type {norm}")
         audio = normalize_audio(audio, norm)
     
+    spacing = 0.5 if spacing is 0 else spacing # handle degenerate case as a request for the defaults
+    
     start, i = 0, 0
     while start < audio.shape[-1]:
         out_filename = new_filename.replace(ext, f'--{i}'+ext) 
@@ -47,7 +49,7 @@ def blow_chunks(
             torchaudio.save(out_filename, chunk, sr)
         else:
             print(f"skipping chunk {out_filename} because it's 'silent' (below threhold of {thresh} dB).",flush=True)
-        start, i = start + int(overlap * chunk_size), i + 1
+        start, i = start + int(spacing * chunk_size), i + 1
     return 
 
 # %% ../03_chunkadelic.ipynb 8
@@ -75,7 +77,7 @@ def process_one_file(
         return 
     try:
         audio = load_audio(filename, sr=args.sr)
-        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=args.norm, overlap=args.overlap, strip=args.strip, thresh=args.thresh)
+        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=args.norm, spacing=args.spacing, strip=args.strip, thresh=args.thresh)
     except Exception as e: 
         print(f"Error loading {filename} or writing chunks. Skipping.", flush=True)
 
@@ -86,8 +88,8 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--chunk_size', type=int, default=2**17, help='Length of chunks')
     parser.add_argument('--sr', type=int, default=48000, help='Output sample rate')
-    parser.add_argument('--norm', action='store_true', help='normalize audio, based on the max of the absolute value [global/channel]')
-    parser.add_argument('--overlap', type=float, default=0.5, help='Overlap factor')
+    parser.add_argument('--norm', action='store_true', help='Normalize audio, based on the max of the absolute value [global/channel]')
+    parser.add_argument('--spacing', type=float, default=0.5, help='Spacing factor, advance this fraction of a chunk per copy')
     parser.add_argument('--strip', action='store_true', help='Strips silence: chunks with max dB below <thresh> are not outputted')
     parser.add_argument('--thresh', type=int, default=-70, help='threshold in dB for determining what constitutes silence')
     parser.add_argument('--workers', type=int, default=min(32, os.cpu_count() + 4), help='Maximum number of workers to use (default: all)')
