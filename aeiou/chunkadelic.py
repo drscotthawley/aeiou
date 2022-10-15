@@ -70,7 +70,7 @@ def process_one_file(
     new_filename = None
     
     for ipath in input_paths: # set up the output filename & any folders it needs
-        if args.nomix and ('Mix' in ipath) and ('Audio Files' in path): return  # this is specific to the BDCT dataset, otherwise ignore
+        if args.nomix and ('Mix' in ipath) and ('Audio Files' in ipath): return  # this is specific to the BDCT dataset, otherwise ignore
         if ipath in filename:
             last_ipath = ipath.split('/')[-1]           # get the last part of ipath
             clean_filename = filename.replace(ipath,'') # remove all of ipath from the front of filename
