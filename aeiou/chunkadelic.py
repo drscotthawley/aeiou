@@ -12,7 +12,7 @@ from tqdm.contrib.concurrent import process_map
 import torch
 import torchaudio
 import math
-from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio
+from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio, loudness, get_dbmax
 
 # %% ../03_chunkadelic.ipynb 7
 def blow_chunks(
@@ -20,7 +20,8 @@ def blow_chunks(
     new_filename:str,    # stem of new filename(s) to be output as chunks
     chunk_size:int,      # how big each audio chunk is, in samples
     sr=48000,            # audio sample rate in Hz
-    norm=False,          # normalize audio, based on the max of the absolute value [global/channel]
+    norm=False,          # normalize input audio, based on the max of the absolute value [global/channel]
+    chunk_norm=False,    # normalize outputted chunks, based on the max of the absolute value [global/channel]
     spacing=0.5,         # fraction of each chunk to advance between hops
     strip=False,    # strip silence: chunks with max power in dB below this value will not be saved to files
     thresh=-70      # threshold in dB for determining what counts as silence 
@@ -33,9 +34,12 @@ def blow_chunks(
     if norm is True: # handle the most likely improper response defaulted to 'global'
         norm = 'global'
     if norm in ['global','channel']:
-        print(f"normalizing {new_filename} with type {norm}")
-        audio = normalize_audio(audio, norm)
-    
+        orig_db =  get_dbmax(audio) #loudness(audio, sr) 
+        audio =    normalize_audio(audio, norm)
+        norm_db =  get_dbmax(audio) #loudness(audio, sr)
+        gain_db =  orig_db - norm_db
+        print(f"normalized {new_filename} with type {norm} for {gain_db} gain ", flush=True)
+
     spacing = 0.5 if spacing is 0 else spacing # handle degenerate case as a request for the defaults
     
     start, i = 0, 0
@@ -45,6 +49,7 @@ def blow_chunks(
         if end-start < chunk_size:  # needs zero padding on end
             chunk = torch.zeros(audio.shape[0], chunk_size)
         chunk[:,0:end-start] = audio[:,start:end]
+        chunk = normalize_audio(chunk, norm) if chunk_norm else chunk
         if (not strip) or (not is_silence(chunk, thresh=thresh)):
             torchaudio.save(out_filename, chunk, sr)
         else:
