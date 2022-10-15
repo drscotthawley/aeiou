@@ -94,6 +94,7 @@ def main():
     parser.add_argument('--chunk_size', type=int, default=2**17, help='Length of chunks')
     parser.add_argument('--sr', type=int, default=48000, help='Output sample rate')
     parser.add_argument('--norm', action='store_true', help='Normalize audio, based on the max of the absolute value [global/channel]')
+    parser.add_argument('--chunk_norm', action='store_true', help='Normalize outputted chunks [global/channel]')
     parser.add_argument('--spacing', type=float, default=0.5, help='Spacing factor, advance this fraction of a chunk per copy')
     parser.add_argument('--strip', action='store_true', help='Strips silence: chunks with max dB below <thresh> are not outputted')
     parser.add_argument('--thresh', type=int, default=-70, help='threshold in dB for determining what constitutes silence')
