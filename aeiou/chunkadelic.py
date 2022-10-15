@@ -29,16 +29,17 @@ def blow_chunks(
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
     chunk = torch.zeros(audio.shape[0], chunk_size)
     _, ext = os.path.splitext(new_filename)
-
-        # normalize audio if requested
+    
+    # normalize audio if requested 
     if norm is True: # handle the most likely improper response defaulted to 'global'
         norm = 'global'
-    if norm in ['global','channel']:
-        orig_db =  get_dbmax(audio) #loudness(audio, sr) 
-        audio =    normalize_audio(audio, norm)
-        norm_db =  get_dbmax(audio) #loudness(audio, sr)
-        gain_db =  orig_db - norm_db
-        print(f"normalized {new_filename} with type {norm} for {gain_db} gain ", flush=True)
+    if norm in ['global','channel']:       
+        audio_norm =    normalize_audio(audio, norm)     
+        gain_db =  abs(get_dbmax(audio)) - abs(get_dbmax(audio_norm))   
+        if gain_db > 0:
+            print(f"normalized {new_filename} with type {norm} creating {gain_db}dB change ", flush=True)
+            audio=audio_norm
+        #implicty revert if it enquietens 
 
     spacing = 0.5 if spacing is 0 else spacing # handle degenerate case as a request for the defaults
     
