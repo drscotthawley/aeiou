@@ -20,6 +20,7 @@ def blow_chunks(
     new_filename:str,    # stem of new filename(s) to be output as chunks
     chunk_size:int,      # how big each audio chunk is, in samples
     sr=48000,            # audio sample rate in Hz
+    as_wav = False,      # store the chunks in wav format
     norm=False,          # normalize input audio, based on the max of the absolute value [global/channel]
     chunk_norm=False,    # normalize outputted chunks, based on the max of the absolute value [global/channel]
     spacing=0.5,         # fraction of each chunk to advance between hops
@@ -29,6 +30,7 @@ def blow_chunks(
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
     chunk = torch.zeros(audio.shape[0], chunk_size)
     _, ext = os.path.splitext(new_filename)
+    ext = ".wav" if as_wav else ext
     
     # normalize audio if requested 
     if norm is True: # handle the most likely improper response defaulted to 'global'
