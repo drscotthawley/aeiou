@@ -12,7 +12,7 @@ from tqdm.contrib.concurrent import process_map
 import torch
 import torchaudio
 import math
-from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio, loudness, get_dbmax
+from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio, get_dbmax
 
 # %% ../03_chunkadelic.ipynb 7
 def blow_chunks(
@@ -44,7 +44,7 @@ def blow_chunks(
         else: #implicty revert if it enquietens
             print(f"reverting {new_filename} ", flush=True)
 
-    spacing = 0.5 if spacing is 0 else spacing # handle degenerate case as a request for the defaults
+    spacing = 0.5 if spacing == 0 else spacing # handle degenerate case as a request for the defaults
     
     start, i = 0, 0
     while start < audio.shape[-1]:
@@ -107,8 +107,8 @@ def main():
     parser.add_argument('--chunk_size', type=int, default=2**17, help='Length of chunks')
     parser.add_argument('--sr', type=int, default=48000, help='Output sample rate')
     parser.add_argument('--as_wav', action='store_true', default=False, help='Store the chunks in wav format')    
-    parser.add_argument('--norm', action='store_true', help='Normalize audio, based on the max of the absolute value [global/channel]')
-    parser.add_argument('--chunk_norm', action='store_true', help='Normalize outputted chunks [global/channel]')
+    parser.add_argument('--norm', action='store', metavar='False', default=False, help='Normalize audio, based on the max of the absolute value [global/channel/False]')
+    parser.add_argument('--chunk_norm', default=False, action='store', help='Normalize outputted chunks [global/channel/False]')
     parser.add_argument('--spacing', type=float, default=0.5, help='Spacing factor, advance this fraction of a chunk per copy')
     parser.add_argument('--strip', action='store_true', help='Strips silence: chunks with max dB below <thresh> are not outputted')
     parser.add_argument('--thresh', type=int, default=-70, help='threshold in dB for determining what constitutes silence')

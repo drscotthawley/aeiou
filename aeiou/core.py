@@ -2,7 +2,7 @@
 
 # %% auto 0
 __all__ = ['normalize_audio', 'load_audio', 'get_dbmax', 'audio_float_to_int', 'is_silence', 'batch_it_crazy', 'makedir',
-           'fast_scandir', 'get_audio_filenames', 'loudness']
+           'fast_scandir', 'get_audio_filenames']
 
 # %% ../00_core.ipynb 4
 import torch
@@ -15,7 +15,6 @@ import librosa
 import os
 import math
 from einops import rearrange
-from torchaudio.functional.filtering import highpass_biquad, treble_biquad
 
 # %% ../00_core.ipynb 5
 def normalize_audio(
@@ -139,61 +138,3 @@ def get_audio_filenames(
         subfolders, files = fast_scandir(path, ['.wav','.flac','.ogg','.aiff','.aif','.mp3'])
         filenames.extend(files)
     return filenames
-
-# %% ../00_core.ipynb 46
-## https://github.com/pytorch/audio/blob/5239583e855ea031bcd34c6b7cb658a80325b8ed/torchaudio/functional/functional.py#L1646
-## Ver~13.0 Polyfill
-def loudness(waveform: Tensor, sample_rate: int):
-    r"""Measure audio loudness according to the ITU-R BS.1770-4 recommendation.
-    .. devices:: CPU CUDA
-    .. properties:: TorchScript
-    Args:
-        waveform(torch.Tensor): audio waveform of dimension `(..., channels, time)`
-        sample_rate (int): sampling rate of the waveform
-    Returns:
-        Tensor: loudness estimates (LKFS)
-    Reference:
-        - https://www.itu.int/rec/R-REC-BS.1770-4-201510-I/en
-    """
-
-    if waveform.size(-2) > 5:
-        raise ValueError("Only up to 5 channels are supported.")
-
-    gate_duration = 0.4
-    overlap = 0.75
-    gamma_abs = -70.0
-    kweight_bias = -0.691
-    gate_samples = int(round(gate_duration * sample_rate))
-    step = int(round(gate_samples * (1 - overlap)))
-
-    # Apply K-weighting
-    waveform = treble_biquad(waveform, sample_rate, 4.0, 1500.0, 1 / math.sqrt(2))
-    waveform = highpass_biquad(waveform, sample_rate, 38.0, 0.5)
-
-    # Compute the energy for each block
-    energy = torch.square(waveform).unfold(-1, gate_samples, step)
-    energy = torch.mean(energy, dim=-1)
-
-    # Compute channel-weighted summation
-    g = torch.tensor([1.0, 1.0, 1.0, 1.41, 1.41], dtype=waveform.dtype, device=waveform.device)
-    g = g[: energy.size(-2)]
-
-    energy_weighted = torch.sum(g.unsqueeze(-1) * energy, dim=-2)
-    loudness = -0.691 + 10 * torch.log10(energy_weighted)
-
-    # Apply absolute gating of the blocks
-    gated_blocks = loudness > gamma_abs
-    gated_blocks = gated_blocks.unsqueeze(-2)
-
-    energy_filtered = torch.sum(gated_blocks * energy, dim=-1) / torch.count_nonzero(gated_blocks, dim=-1)
-    energy_weighted = torch.sum(g * energy_filtered, dim=-1)
-    gamma_rel = kweight_bias + 10 * torch.log10(energy_weighted) - 10
-
-    # Apply relative gating of the blocks
-    gated_blocks = torch.logical_and(gated_blocks.squeeze(-2), loudness > gamma_rel.unsqueeze(-1))
-    gated_blocks = gated_blocks.unsqueeze(-2)
-
-    energy_filtered = torch.sum(gated_blocks * energy, dim=-1) / torch.count_nonzero(gated_blocks, dim=-1)
-    energy_weighted = torch.sum(g * energy_filtered, dim=-1)
-    LKFS = kweight_bias + 10 * torch.log10(energy_weighted)
-    return LKFS
