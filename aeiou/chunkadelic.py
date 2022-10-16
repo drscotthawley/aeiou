@@ -86,7 +86,16 @@ def process_one_file(
         return 
     try:
         audio = load_audio(filename, sr=args.sr)
-        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=args.norm, spacing=args.spacing, strip=args.strip, thresh=args.thresh)
+        blow_chunks(audio, 
+        new_filename, 
+        args.chunk_size, 
+        sr=args.sr, 
+        as_wav=args.as_wav,
+        norm=args.norm, 
+        chunk_norm=args.chunk_norm, 
+        spacing=args.spacing, 
+        strip=args.strip, 
+        thresh=args.thresh)
     except Exception as e: 
         print(f"Error loading {filename} or writing chunks. Skipping.", flush=True)
 
@@ -97,6 +106,7 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--chunk_size', type=int, default=2**17, help='Length of chunks')
     parser.add_argument('--sr', type=int, default=48000, help='Output sample rate')
+    parser.add_argument('--as_wav', action='store_true', default=False, help='Store the chunks in wav format')    
     parser.add_argument('--norm', action='store_true', help='Normalize audio, based on the max of the absolute value [global/channel]')
     parser.add_argument('--chunk_norm', action='store_true', help='Normalize outputted chunks [global/channel]')
     parser.add_argument('--spacing', type=float, default=0.5, help='Spacing factor, advance this fraction of a chunk per copy')
