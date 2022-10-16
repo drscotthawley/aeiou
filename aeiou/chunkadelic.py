@@ -39,7 +39,8 @@ def blow_chunks(
         if gain_db > 0:
             print(f"normalized {new_filename} with type {norm} creating {gain_db}dB change ", flush=True)
             audio=audio_norm
-        #implicty revert if it enquietens 
+        else: #implicty revert if it enquietens
+            print(f"reverting {new_filename} ", flush=True)
 
     spacing = 0.5 if spacing is 0 else spacing # handle degenerate case as a request for the defaults
     
