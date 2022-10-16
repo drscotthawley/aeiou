@@ -20,7 +20,6 @@ def blow_chunks(
     new_filename:str,    # stem of new filename(s) to be output as chunks
     chunk_size:int,      # how big each audio chunk is, in samples
     sr=48000,            # audio sample rate in Hz
-    as_wav = False,      # store the chunks in wav format
     norm=False,          # normalize input audio, based on the max of the absolute value [global/channel]
     chunk_norm=False,    # normalize outputted chunks, based on the max of the absolute value [global/channel]
     spacing=0.5,         # fraction of each chunk to advance between hops
@@ -30,7 +29,6 @@ def blow_chunks(
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
     chunk = torch.zeros(audio.shape[0], chunk_size)
     _, ext = os.path.splitext(new_filename)
-    ext = ".wav" if as_wav else ext
     
     # normalize audio if requested 
     if norm is True: # handle the most likely improper response defaulted to 'global'
@@ -39,7 +37,7 @@ def blow_chunks(
         audio_norm =    normalize_audio(audio, norm)     
         gain_db =  abs(get_dbmax(audio)) - abs(get_dbmax(audio_norm))   
         if gain_db > 0:
-            print(f"normalized {new_filename} with type {norm} creating {gain_db}dB change ", flush=True)
+            print(f"normalized {new_filename} with type {norm} creating {gain_db[:4]}dB change ", flush=True)
             audio=audio_norm
         else: #implicty revert if it enquietens
             print(f"reverting {new_filename} ", flush=True)
@@ -86,16 +84,7 @@ def process_one_file(
         return 
     try:
         audio = load_audio(filename, sr=args.sr)
-        blow_chunks(audio, 
-        new_filename, 
-        args.chunk_size, 
-        sr=args.sr, 
-        as_wav=args.as_wav,
-        norm=args.norm, 
-        chunk_norm=args.chunk_norm, 
-        spacing=args.spacing, 
-        strip=args.strip, 
-        thresh=args.thresh)
+        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=args.norm, chunk_norm=args.chunk_norm, spacing=args.spacing, strip=args.strip, thresh=args.thresh)
     except Exception as e: 
         print(f"Error loading {filename} or writing chunks. Skipping.", flush=True)
 
