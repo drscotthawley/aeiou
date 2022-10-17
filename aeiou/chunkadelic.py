@@ -34,13 +34,10 @@ def blow_chunks(
     if norm is True: # handle the most likely improper response defaulted to 'global'
         norm = 'global'
     if norm in ['global','channel']:       
-        audio_norm =    normalize_audio(audio, norm)     
-        gain_db =  abs(get_dbmax(audio)) - abs(get_dbmax(audio_norm))   
-        if gain_db > 0:
-            print(f"normalized {new_filename} with type {norm} creating {gain_db[:4]}dB change ", flush=True)
-            audio=audio_norm
-        else: #implicty revert if it enquietens
-            print(f"reverting {new_filename} ", flush=True)
+        audio_norm = normalize_audio(audio, norm)     
+        gain_db = abs(get_dbmax(audio)) - abs(get_dbmax(audio_norm))   
+        print(f"normalized {new_filename} with type {norm} creating {gain_db[:4]}dB change ", flush=True)
+        audio=audio_norm
 
     spacing = 0.5 if spacing == 0 else spacing # handle degenerate case as a request for the defaults
     
