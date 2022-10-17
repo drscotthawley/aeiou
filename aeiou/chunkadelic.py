@@ -21,7 +21,6 @@ def blow_chunks(
     chunk_size:int,      # how big each audio chunk is, in samples
     sr=48000,            # audio sample rate in Hz
     norm=False,          # normalize input audio, based on the max of the absolute value [global/channel]
-    chunk_norm=False,    # normalize outputted chunks, based on the max of the absolute value [global/channel]
     spacing=0.5,         # fraction of each chunk to advance between hops
     strip=False,    # strip silence: chunks with max power in dB below this value will not be saved to files
     thresh=-70      # threshold in dB for determining what counts as silence 
@@ -48,7 +47,6 @@ def blow_chunks(
         if end-start < chunk_size:  # needs zero padding on end
             chunk = torch.zeros(audio.shape[0], chunk_size)
         chunk[:,0:end-start] = audio[:,start:end]
-        chunk = normalize_audio(chunk, norm) if chunk_norm else chunk
         if (not strip) or (not is_silence(chunk, thresh=thresh)):
             torchaudio.save(out_filename, chunk, sr)
         else:
@@ -81,7 +79,7 @@ def process_one_file(
         return 
     try:
         audio = load_audio(filename, sr=args.sr)
-        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=args.norm, chunk_norm=args.chunk_norm, spacing=args.spacing, strip=args.strip, thresh=args.thresh)
+        blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, norm=args.norm, spacing=args.spacing, strip=args.strip, thresh=args.thresh)
     except Exception as e: 
         print(f"Error loading {filename} or writing chunks. Skipping.", flush=True)
 
@@ -92,9 +90,7 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--chunk_size', type=int, default=2**17, help='Length of chunks')
     parser.add_argument('--sr', type=int, default=48000, help='Output sample rate')
-    parser.add_argument('--as_wav', action='store_true', default=False, help='Store the chunks in wav format')    
     parser.add_argument('--norm', action='store', metavar='False', default=False, help='Normalize audio, based on the max of the absolute value [global/channel/False]')
-    parser.add_argument('--chunk_norm', default=False, action='store', help='Normalize outputted chunks [global/channel/False]')
     parser.add_argument('--spacing', type=float, default=0.5, help='Spacing factor, advance this fraction of a chunk per copy')
     parser.add_argument('--strip', action='store_true', help='Strips silence: chunks with max dB below <thresh> are not outputted')
     parser.add_argument('--thresh', type=int, default=-70, help='threshold in dB for determining what constitutes silence')
