@@ -14,14 +14,15 @@ import json
 import tqdm
 from multiprocessing import Pool, cpu_count
 from functools import partial
-from .core import load_audio, get_audio_filenames, is_silence
+from .core import load_audio, get_audio_filenames, is_silence, untuple
+from .viz import playable_spectrogram
 from fastcore.utils import *
 import webdataset as wds
 import subprocess
 
 # %% auto 0
 __all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'RandomGain', 'get_s3_contents',
-           'get_contiguous_range', 'download_webdataset_json', 'DataInfo', 'get_wds_dataset', 'AudioDataset']
+           'get_contiguous_range', 'get_all_s3_urls', 'AudioDataset', 'IterableAudioDataset', 'HybridAudioDataset']
 
 # %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
@@ -134,9 +135,9 @@ class RandomGain(nn.Module):
         return signal
 
 # %% ../01_datasets.ipynb 17
-def get_s3_contents(dataset_path, s3_url_prefix='s3://s-laion-audio/webdataset_tar', filter=''):
+def get_s3_contents(dataset_path, s3_url_prefix='s3://s-laion-audio/webdataset_tar/', filter=''):
     "Gets a list of names of files or subdirectories on an s3 path"
-    run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}/{dataset_path}/'], capture_output=True)
+    run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}/'], capture_output=True)
     result = subprocess.run(['awk','{print $NF}'],input=run_ls.stdout, capture_output=True)
     contents = result.stdout.decode('utf-8').strip().replace('/','').split('\n')
     contents = [x for x in contents if x] # list of non-empty strings
@@ -159,189 +160,27 @@ def get_contiguous_range(
         print("get_contiguous_range: File numbers not continuous")  # have to do more work
         return '' # empty string will signify no dice; signal for more work to be done
 
-# %% ../01_datasets.ipynb 37
-def download_webdataset_json(
-    datasetnames,              # list of names of valid AudioDataset datasets / paths
-    dataset_split={},          # keys are dataset names, values are lists of subdirs
-    src_prefix='s3://s-laion-audio/webdataset_tar', # parent location where the dataset lives
-    dst_prefix='./json_files', # local path to save the json
-    force=False,            # Force new download even if local copy exists
-    ):
-    "Downloads the json info of webdataset (sub-)file sizes"
-    for dataset_name in datasetnames:
-        splits = dataset_split if dataset_split!={} else get_s3_contents(dataset_name)
-        for split in splits:
-            if not os.path.exists(f"./json_files/{dataset_name}/{split}"): # make sure local dir to hold json exists
-                os.makedirs(f"./json_files/{dataset_name}/{split}")
-            dst = f"{dst_prefix}/{dataset_name}/{split}/sizes.json"
-            if force or not os.path.exists(dst):
-                os.system(        # TODO: replace os.system with subprocess.run
-                    f"aws s3 cp {src_prefix}/{dataset_name}/{split}/sizes.json {dst_prefix}/{dataset_name}/{split}/sizes.json"
-                )
-            #else: print("Already got it")
-
-# %% ../01_datasets.ipynb 49
-# taken from LAION CLAP repo, https://github.com/LAION-AI/CLAP/blob/d2d5dae8ea8f1ee02ac40242418a36d1d567943a/src/training/data.py
-
-from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
-from torch.utils.data.distributed import DistributedSampler
-from dataclasses import dataclass
-
-@dataclass
-class DataInfo:
-    dataloader: DataLoader
-    sampler: DistributedSampler
-        
-
-def get_wds_dataset(
-    args,
-    model_cfg,
-    is_train,
-    audio_ext="flac",
-    text_ext="json",
-    max_len=480000,
-    proportion=1.0,
-    sizefilepath_=None,
-    is_local=None,
-):
-    """
-    Get a dataset for wdsdataloader.
-    """
-    if is_local is None and (not args.remotedata is None):
-        is_local = not args.remotedata
-
-    input_shards = args.train_data if is_train else args.val_data
-    assert input_shards is not None
-
-    if not sizefilepath_ is None:
-        sizefilepath = sizefilepath_
-    else:
-        sizefilepath = os.path.join(os.path.dirname(input_shards[0]), "sizes.json")
-
-    if proportion != 1.0:
-        num_samples, num_shards, input_shards, _ = sample_prop(
-            sizefilepath, input_shards, proportion, is_local=is_local
-        )
-    else:
-        num_samples, num_shards = get_dataset_size(
-            input_shards, sizefilepath_=sizefilepath_, is_local=is_local
-        )
-
-    if not num_samples:
-        if is_train:
-            num_samples = args.train_num_samples
-            if not num_samples:
-                raise RuntimeError(
-                    "Currently, number of dataset samples must be specified for training dataset. "
-                    "Please specify via `--train-num-samples` if no dataset length info present."
-                )
+# %% ../01_datasets.ipynb 39
+def get_all_s3_urls(
+    names=['FSD50K'],    # list of all valid [LAION AudioDataset] dataset names 
+    subsets=['train','test','valid'],   # list of subsets you want from those datasets
+    s3_url_prefix='s3://s-laion-audio/webdataset_tar/'   # prefix for those
+    ): 
+    urls = []
+    for name in names:
+        #print(f"{s3_url_prefix}{name}:")
+        if len(subsets) > 0:
+            for subset in subsets:
+                tar_list = get_s3_contents(f'{name}/{subset}', s3_url_prefix=s3_url_prefix)
+                for tar in tar_list:
+                    urls.append(f"pipe:aws s3 cp {s3_url_prefix}{name}/{subset}/{tar} -")
         else:
-            num_samples = (
-                args.val_num_samples or 0
-            )  # eval will just exhaust the iterator if not specified
+            tar_list = get_s3_contents(f'{name}', s3_url_prefix=s3_url_prefix)
+            for tar in tar_list:
+                urls.append(f"pipe:aws s3 cp {s3_url_prefix}{name}/{tar} -")
+    return urls
 
-    pipeline = [wds.SimpleShardList(input_shards)]    # re. Pipeline: cf https://github.com/webdataset/webdataset#pipeline-interface
-    # at this point we have an iterator over all the shards
-    if is_train or args.parallel_eval:
-        pipeline.extend(
-            [
-                wds.detshuffle(
-                    bufsize=_SHARD_SHUFFLE_SIZE,
-                    initial=_SHARD_SHUFFLE_INITIAL,
-                    seed=args.seed,
-                ),
-                wds.split_by_node,
-                wds.split_by_worker,
-                # at this point, we have an iterator over the shards assigned to each worker at each node
-                wds.tarfile_to_samples(handler=log_and_continue),
-                wds.shuffle(
-                    bufsize=_SAMPLE_SHUFFLE_SIZE,
-                    initial=_SAMPLE_SHUFFLE_INITIAL,
-                    rng=random.Random(args.seed),
-                ),
-                # wds.repeatedly,  # FIXME determine if this is beneficial
-            ]
-        )
-    else:
-        pipeline.extend(
-            [
-                wds.split_by_worker,
-                # at this point, we have an iterator over the shards assigned to each worker
-                wds.tarfile_to_samples(handler=log_and_continue),
-            ]
-        )
-    pipeline.append(
-        wds.map(
-            partial(
-                preprocess,
-                audio_ext=audio_ext,
-                text_ext=text_ext,
-                max_len=max_len,
-                class_index_dict=copy.deepcopy(args.class_index_dict),
-                data_filling=args.data_filling,
-            )
-        ),
-    )
-
-    pipeline.append(
-        wds.batched(
-            args.batch_size,
-            partial=not (is_train or args.parallel_eval),
-            collation_fn=collate_fn,
-        )
-    )
-
-    dataset = wds.DataPipeline(*pipeline) # Instantiate list as Pipeline
-    
-    if is_train or args.parallel_eval:
-        # (yusong): Currently parallel evaluation will be not precise as we are repeat the last few samples.
-        # (yusong): See comments below.
-        # roll over and repeat a few samples to get same number of full batches on each node
-        global_batch_size = args.batch_size * args.world_size
-        num_batches = math.ceil(num_samples / global_batch_size)
-        num_workers = max(1, args.workers)
-        num_worker_batches = math.ceil(
-            num_batches / num_workers
-        )  # per dataloader worker
-        num_batches = num_worker_batches * num_workers
-        num_samples = num_batches * global_batch_size
-        dataset = dataset.with_epoch(
-            num_worker_batches
-        )  # each worker is iterating over this
-    else:
-        # last batches are partial, eval is done on single (master) node
-        num_batches = math.ceil(num_samples / args.batch_size)
-
-    kwargs = {}
-    if args.horovod:  # multi-node training on summit
-        kwargs["multiprocessing_context"] = "forkserver"
-
-    dataloader = wds.WebLoader(
-        dataset, batch_size=None, shuffle=False, num_workers=args.workers, **kwargs
-    )
-
-    # FIXME not clear which approach is better, with_epoch before vs after dataloader?
-    # hoping to resolve via https://github.com/webdataset/webdataset/issues/169
-    # if is_train:
-    #     # roll over and repeat a few samples to get same number of full batches on each node
-    #     global_batch_size = args.batch_size * args.world_size
-    #     num_batches = math.ceil(num_samples / global_batch_size)
-    #     num_workers = max(1, args.workers)
-    #     num_batches = math.ceil(num_batches / num_workers) * num_workers
-    #     num_samples = num_batches * global_batch_size
-    #     dataloader = dataloader.with_epoch(num_batches)
-    # else:
-    #     # last batches are partial, eval is done on single (master) node
-    #     num_batches = math.ceil(num_samples / args.batch_size)
-
-    # add meta-data to dataloader instance for convenience
-    dataloader.num_batches = num_batches
-    dataloader.num_samples = num_samples
-
-    return DataInfo(dataloader, None)
-
-
-# %% ../01_datasets.ipynb 53
+# %% ../01_datasets.ipynb 43
 class AudioDataset(torch.utils.data.Dataset):
     """
     Reads from a tree of directories and serves up cropped bits from any and all audio files
@@ -367,7 +206,7 @@ class AudioDataset(torch.utils.data.Dataset):
         print("augs =",augs)
         # base_augs are always applied
         base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
-        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
+        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  if augs is not None else None 
         self.silence_thresh = silence_thresh
         self.redraw_silence = redraw_silence
         self.max_redraws = max_redraws
@@ -419,25 +258,20 @@ class AudioDataset(torch.utils.data.Dataset):
                 audio = self.audio_files[idx] # .copy()
             else:
                 audio = load_audio(audio_filename, sr=self.sr, verbose=self.verbose)
-
-            #Run augmentations on this sample (including random crop)
-            if self.augs is not None:
+            if self.augs is not None:         #Run augmentations on this sample (including random crop)
                 audio = self.augs(audio)
-                
             audio = audio.clamp(-1, 1)
             return audio
         
         except Exception as e:
-          print(f'Error loading file {audio_filename}: {e}')
-          return None
-        
+            print(f'AudioDataset.get_next_chunk: Error loading file {audio_filename}: {e}')
+            return None
         
         
     def __getitem__(self, 
         idx     # the index of the file within the list of files
         ):
         audio = self.get_next_chunk(idx)
-                
         # even with PadCrop set to reject silences, it could be that the whole file is silence; 
         num_redraws = 0 
         while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
@@ -447,3 +281,102 @@ class AudioDataset(torch.utils.data.Dataset):
             audio, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
                
         return self[random.randrange(len(self))] if (audio is None) else audio
+
+# %% ../01_datasets.ipynb 46
+class IterableAudioDataset(torch.utils.data.IterableDataset):
+    "Iterable version of AudioDataset, used with Chain (below)"
+    def __init__(self, 
+        paths,             # list of strings of directory (/tree) names to draw audio files from
+        sample_rate=48000, # audio sample rate in Hz
+        sample_size=65536, # how many audio samples in each "chunk"
+        random_crop=True,  # take chunks from random positions within files
+        load_frac=1.0,     # fraction of total dataset to load
+        cache_training_data=False,  # True = pre-load whole dataset into memory (not fully supported)
+        num_gpus=8,        # used only when `cache_training_data=True`, to avoid duplicates,
+        redraw_silence=True, # a chunk containing silence will be replaced with a new one
+        silence_thresh=-60,  # threshold in dB below which we declare to be silence
+        max_redraws=2,        # when redrawing silences, don't do it more than this many
+        augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
+        verbose=False,       # whether to print notices of reasampling or not
+        ):
+        super().__init__()
+        self.this = AudioDataset(paths, sample_rate=sample_rate, sample_size=sample_size, random_crop=random_crop,
+                                load_frac=load_frac, cache_training_data=cache_training_data, num_gpus=num_gpus,
+                                redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws,
+                                augs=augs, verbose=verbose)
+        self.len = len(self.this)
+        
+    def __iter__(self):
+        yield self.this.__getitem__(random.randint(0, self.len))
+
+# %% ../01_datasets.ipynb 48
+class HybridAudioDataset(torch.utils.data.IterableDataset):
+    "Combines AudioDataset and WebDataset"
+    def __init__(self, 
+        local_paths:list,             # list of strings of directory (/tree) names to draw audio files from
+        webdataset_names:list,    # list of LAION Audiodataset or Internet Archive dataset names
+        sample_rate=48000, # audio sample rate in Hz
+        sample_size=65536, # how many audio samples in each "chunk"
+        random_crop=True,  # take chunks from random positions within files
+        load_frac=1.0,     # fraction of total dataset to load
+        cache_training_data=False,  # True = pre-load whole dataset into memory (not fully supported)
+        num_gpus=8,        # used only when `cache_training_data=True`, to avoid duplicates,
+        redraw_silence=True, # a chunk containing silence will be replaced with a new one
+        silence_thresh=-60,  # threshold in dB below which we declare to be silence
+        max_redraws=2,        # when redrawing silences, don't do it more than this many
+        augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
+        verbose=False,       # whether to print notices of reasampling or not
+        subsets=['train','valid'],  # leave out 'test' for webdatasets
+        s3_url_prefixes=['s3://s-laion-audio/webdataset_tar/','s3://iarchive-stability/'], # where to look on s3 for things
+        ):
+        super().__init__()
+        
+        if isinstance(webdataset_names, str): webdataset_names = [webdataset_names]
+        base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
+        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
+        self.redraw_silence = redraw_silence
+        self.max_redraws = max_redraws
+        self.silence_thresh = silence_thresh
+
+        self.local_ds, self.web_ds, self.len = None, None, 0
+        if len(local_paths) > 0:
+            self.local_ds = IterableAudioDataset(local_paths, sample_rate=sample_rate, sample_size=sample_size, random_crop=random_crop,
+                                    load_frac=load_frac, cache_training_data=cache_training_data, num_gpus=num_gpus,
+                                    redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws,
+                                    augs=None, verbose=verbose)  # do augs later
+            #self.len = len(self.local_ds)  # len will only return known length
+        if len(webdataset_names) > 0:
+            urls= []
+            for s3_url_prefix in s3_url_prefixes:
+                if 'iarchive' in s3_url_prefix: 
+                    urls0 = get_all_s3_urls(names=webdataset_names, subsets=[], s3_url_prefix=s3_url_prefix)
+                else:
+                    urls0 = get_all_s3_urls(names=webdataset_names, subsets=subsets, s3_url_prefix=s3_url_prefix)
+                if len(urls0) > 0:  urls = urls + urls0
+            self.web_ds = wds.WebDataset(urls).decode(wds.torch_audio).shuffle(10000).to_tuple("flac") 
+            print(f"WebDataset {webdataset_names} set up.")
+            
+        self.ds_list = []
+        if (self.local_ds != None): self.ds_list.append(self.local_ds)
+        #self.total_ds = torch.utils.data.ChainDataset((self.local_ds, self.web_ds))
+        if (self.web_ds != None): self.ds_list.append(self.web_ds)
+
+
+    def get_next_chunk(self):
+        ds_choice = random.choice(self.ds_list)  # randomly pick from available ds list
+        audio = untuple(next(iter(ds_choice)))   
+        if self.augs is not None: #Run augmentations on this sample (including random crop)
+            audio = self.augs(audio)
+        audio = audio.clamp(-1, 1)
+        return audio
+            
+        
+    def __iter__(self):
+        audio = self.get_next_chunk()
+        num_redraws = 0 
+        while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
+            and (num_redraws < self.max_redraws)):
+            next_idx = random.randint(0,len(self.filenames)-1)     # pick some other file at random
+            audio, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
+
+        yield audio

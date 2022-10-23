@@ -2,7 +2,7 @@
 
 # %% auto 0
 __all__ = ['normalize_audio', 'load_audio', 'audio_float_to_int', 'is_silence', 'batch_it_crazy', 'makedir', 'fast_scandir',
-           'get_audio_filenames']
+           'get_audio_filenames', 'untuple']
 
 # %% ../00_core.ipynb 4
 import torch
@@ -40,7 +40,7 @@ def load_audio(
     )->torch.tensor:
     "this loads an audio file as a torch tensor"
     if '.mp3' in filename.lower():  # don't rely on torchaudio for mp3s, librosa is more 'kind'
-        audio, in_sr = librosa.load(filename, mono=False) # why librosa defaults to mono is beyond me
+        audio, in_sr = librosa.load(filename, mono=False, sr=sr) # why librosa defaults to mono is beyond me
         audio = torch.tensor(audio)
     else:
         audio, in_sr = torchaudio.load(filename)
@@ -52,12 +52,12 @@ def load_audio(
     if norm != '': audio = normalize_audio(audio, norm=norm)
     return audio
 
-# %% ../00_core.ipynb 21
+# %% ../00_core.ipynb 22
 def audio_float_to_int(waveform):
     "converts torch float to numpy int16 (for playback in notebooks)"
     return np.clip( waveform.cpu().numpy()*32768 , -32768, 32768).astype('int16')
 
-# %% ../00_core.ipynb 23
+# %% ../00_core.ipynb 24
 def is_silence(
     audio,       # torch tensor of (multichannel) audio
     thresh=-60,  # threshold in dB below which we declare to be silence
@@ -66,7 +66,7 @@ def is_silence(
     dBmax = 20*torch.log10(torch.flatten(audio.abs()).max()).cpu().numpy()
     return dBmax < thresh
 
-# %% ../00_core.ipynb 27
+# %% ../00_core.ipynb 28
 def batch_it_crazy(
     x,        # a time series as a PyTorch tensor, e.g. stereo or mono audio
     win_len,  # length of each "window", i.e. length of each element in new batch
@@ -79,7 +79,7 @@ def batch_it_crazy(
     xpad = F.pad(x, (0, pad_amt))
     return rearrange(xpad, 'd (b n) -> b d n', n=win_len)
 
-# %% ../00_core.ipynb 34
+# %% ../00_core.ipynb 35
 def makedir(
     path:str,              # directory or nested set of directories
     ):
@@ -91,7 +91,7 @@ def makedir(
     except:                # don't really care about errors
         pass
 
-# %% ../00_core.ipynb 36
+# %% ../00_core.ipynb 37
 def fast_scandir(
     dir:str,  # top-level directory at which to begin scanning
     ext:list  # list of allowed file extensions
@@ -118,7 +118,7 @@ def fast_scandir(
         files.extend(f)
     return subfolders, files
 
-# %% ../00_core.ipynb 40
+# %% ../00_core.ipynb 41
 def get_audio_filenames(
     paths:list   # directories in which to search
     ):
@@ -129,3 +129,15 @@ def get_audio_filenames(
         subfolders, files = fast_scandir(path, ['.wav','.flac','.ogg','.aiff','.aif','.mp3'])
         filenames.extend(files)
     return filenames
+
+# %% ../00_core.ipynb 44
+def untuple(x, verbose=False):
+    """Recursive.  For when you're sick of tuples and lists: 
+    keeps peeling off elements until we get a non-tuple or non-list, 
+    i.e., returns the 'first' data element we can 'actually use'"""
+    if isinstance(x, tuple) or isinstance(x, list): 
+        if verbose: print("yea: x = ",x)
+        return untuple(x[0], verbose=verbose)
+    else:
+        if verbose: print("no: x = ",x)
+        return x
