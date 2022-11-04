@@ -24,7 +24,7 @@ import re
 # %% auto 0
 __all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'RandomGain', 'get_s3_contents',
            'get_contiguous_range', 'fix_double_slashes', 'get_all_s3_urls', 'AudioDataset', 'IterableAudioDataset',
-           'HybridAudioDataset']
+           'HybridAudioDataset', 'wds_preprocess', 'QuickWebDataLoader']
 
 # %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
@@ -427,3 +427,56 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
             audio, num_redraws = self.get_next_chunk(), num_redraws+1
 
         yield audio
+
+# %% ../01_datasets.ipynb 68
+def wds_preprocess(sample, sample_size=65536, sample_rate=48000):
+    "utility routine for QuickWebDataLoader, below"
+    audio_keys = ("flac", "wav", "mp3", "aiff")
+    found_key, rewrite_key = '', ''
+    for k,v in sample.items():  # print the all entries in dict
+        for akey in audio_keys:
+            if k.endswith(akey): 
+                found_key, rewrite_key = k, akey  # to rename long/weird key with its simpler counterpart
+                break
+        if '' != found_key: break 
+    if '' == found_key:  # got no audio!   
+        print("  Error: No audio in this sample:")
+        for k,v in sample.items():  # print the all entries in dict
+            print(f"    {k:20s} {repr(v)[:50]}")
+        print("       Skipping it.")
+        return None  # try returning None to tell WebDataset to skip this one ?   
+    
+    audio, sr = sample[found_key]
+    myop = torch.nn.Sequential(PadCrop(sample_size), Stereo(), PhaseFlipper())
+    audio = myop(audio)
+    if found_key != rewrite_key:   # rename long/weird key with its simpler counterpart
+        del sample[found_key]
+    sample[rewrite_key] = audio    
+    return sample
+
+# %% ../01_datasets.ipynb 69
+def QuickWebDataLoader(
+    names=['ekto/1'], # names of datasets. will search laion, harmonai & IA s3 buckets for these
+    num_workers=4,    # in the PyTorch DataLoader sense
+    batch_size=4,     # typical batch size
+    audio_file_ext='flac',  # yep this one only supports one extension at a time. try HybridAudioDataset for more
+    shuffle_vals=[1000, 10000],  # values passed into shuffle as per WDS tutorials
+    epoch_len=1000,    # how many passes/loads make for an epoch? wds part of this is not well documented IMHO
+    debug=False,       # print info on internal workings
+    ):
+    "Minimal/quick implementation: Sets up a WebDataLoader with some typical defaults"
+    print("Note: 'Broken pipe' messages you might get aren't a big deal, but may indicate files that are too big.")
+    if names is not list: names = [names]
+    urls = get_all_s3_urls(names=names, recursive=True, debug=debug) 
+    if debug: print("urls =\n",urls)
+    dataset = wds.DataPipeline(
+        wds.ResampledShards(urls),
+        wds.tarfile_to_samples(),
+        wds.shuffle(shuffle_vals[0]),
+        wds.decode(wds.torch_audio),
+        wds.map(wds_preprocess),
+        wds.shuffle(shuffle_vals[1]),
+        wds.to_tuple(audio_file_ext),
+        wds.batched(batch_size)
+    ).with_epoch(epoch_len)
+    return wds.WebLoader(dataset, num_workers=num_workers)
