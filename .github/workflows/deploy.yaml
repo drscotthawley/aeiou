@@ -1,17 +1,4 @@
-name: Deploy to GitHub Pages
-on:
-  push:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps: 
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    - run: sudo apt-get install libsndfile-dev
-    - uses: fastai/workflows/quarto-ghp@master
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+    steps: [run: sudo apt-get install libsndfile-dev, uses: fastai/workflows/quarto-ghp@master]
