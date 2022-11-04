@@ -8,3 +8,4 @@ website:
       - 03_chunkadelic.ipynb
       - 04_spectrofu.ipynb
       - 05_hpc.ipynb
+      - audio_spec.html

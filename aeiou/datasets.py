@@ -19,10 +19,12 @@ from .viz import playable_spectrogram
 from fastcore.utils import *
 import webdataset as wds
 import subprocess
+import re
 
 # %% auto 0
 __all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'RandomGain', 'get_s3_contents',
-           'get_contiguous_range', 'get_all_s3_urls', 'AudioDataset', 'IterableAudioDataset', 'HybridAudioDataset']
+           'get_contiguous_range', 'fix_double_slashes', 'get_all_s3_urls', 'AudioDataset', 'IterableAudioDataset',
+           'HybridAudioDataset']
 
 # %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
@@ -134,16 +136,36 @@ class RandomGain(nn.Module):
         signal = signal * gain
         return signal
 
-# %% ../01_datasets.ipynb 17
-def get_s3_contents(dataset_path, s3_url_prefix='s3://s-laion-audio/webdataset_tar/', filter=''):
+# %% ../01_datasets.ipynb 18
+def get_s3_contents(
+    dataset_path,     # "name" of the dataset on s3
+    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',  # s3 bucket to check
+    filter='',       # only grab certain filename / extensions
+    recursive=True,  # check all subdirectories. RECOMMEND LEAVING THIS TRUE
+    debug=False,     # print debugging info (don't rely on this info staying consistent)
+    ):
     "Gets a list of names of files or subdirectories on an s3 path"
-    run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}/'], capture_output=True)
-    result = subprocess.run(['awk','{print $NF}'],input=run_ls.stdout, capture_output=True)
-    contents = result.stdout.decode('utf-8').strip().replace('/','').split('\n')
-    contents = [x for x in contents if x] # list of non-empty strings
+    if (dataset_path != '') and (not dataset_path.endswith('/')): 
+        dataset_path = dataset_path + '/'
+    dataset_path = dataset_path.replace('//','/') # aws is baffled by double slashes in dir names
+    if not recursive:
+        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}'], capture_output=True)
+    else:
+        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}','--recursive'], capture_output=True)
+        run_ls = subprocess.run(["awk",'{$1=$2=$3=""; print $0}'], input=run_ls.stdout, capture_output=True)
+        run_ls = subprocess.run(["sed",'s/^[ \t]*//'], input=run_ls.stdout, capture_output=True)
+    contents = run_ls.stdout.decode('utf-8').split('\n') 
+    contents = [x.strip() for x in contents if x]      # list of non-empty strings, without leading whitespace
+    contents = [x.replace('PRE ','') if (x[-1]=='/') else x for x in contents]  # directories
+    #contents = [''.join(x.split(' ')[4:]) if (x[-1]!='/') else x for x in contents]    # files
+    if recursive:  # recursive flag weirdly adds redundant extr directory name taken from s3 url, so we should strip
+        main_dir = s3_url_prefix.split('/')[-2]
+        if debug: print("main_dir =",main_dir)
+        contents = [x.replace(f'{main_dir}/','').replace(dataset_path,'').replace('//','/') for x in contents]
+        if debug: print("contents = ",contents)
     return [x for x in contents if filter in x] # return filtered list
 
-# %% ../01_datasets.ipynb 24
+# %% ../01_datasets.ipynb 29
 def get_contiguous_range(
     tar_names, # list of tar file names, although the .tar part is actually optional
     ):
@@ -160,27 +182,51 @@ def get_contiguous_range(
         print("get_contiguous_range: File numbers not continuous")  # have to do more work
         return '' # empty string will signify no dice; signal for more work to be done
 
-# %% ../01_datasets.ipynb 39
+# %% ../01_datasets.ipynb 47
+def fix_double_slashes(s, debug=False):
+    "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
+    cdsh_split = s.split('://')
+    assert (len(cdsh_split) <= 2) and (len(cdsh_split) > 0), f'what kind of string are you using? s={s}'
+    post = cdsh_split[-1]
+    while '//' in post: 
+        post = post.replace('//','/')
+    if len(cdsh_split) > 1: 
+        return cdsh_split[0] + '://' + post
+    else:
+        return post
+
+# %% ../01_datasets.ipynb 51
 def get_all_s3_urls(
     names=['FSD50K'],    # list of all valid [LAION AudioDataset] dataset names 
-    subsets=['train','test','valid'],   # list of subsets you want from those datasets
-    s3_url_prefix='s3://s-laion-audio/webdataset_tar/'   # prefix for those
+    subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
+    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those
+    recursive=True,  # recursively list all tar files in all subdirs
+    filter_str='tar', # only grab files with this substring
+    debug=False,     # print debugging info -- note: info displayed likely to change at dev's whims
     ): 
+    "get urls of shards (tar files) for multiple datasets in one s3 bucket"
+    if s3_url_prefix[-1] != '/':  s3_url_prefix = s3_url_prefix + '/'
     urls = []
+    names = [''] if names == [] else names # for loop below
+    subsets = [''] if subsets == [] else subsets # for loop below
     for name in names:
-        #print(f"{s3_url_prefix}{name}:")
-        if len(subsets) > 0:
-            for subset in subsets:
-                tar_list = get_s3_contents(f'{name}/{subset}', s3_url_prefix=s3_url_prefix)
-                for tar in tar_list:
-                    urls.append(f"pipe:aws s3 cp {s3_url_prefix}{name}/{subset}/{tar} -")
-        else:
-            tar_list = get_s3_contents(f'{name}', s3_url_prefix=s3_url_prefix)
+        if debug: print(f"get_all_s3_urls: {s3_url_prefix}{name}:")
+        for subset in subsets:
+            contents_str = fix_double_slashes(f'{name}/{subset}/')
+            if debug: print("contents_str =",contents_str)
+            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_url_prefix, recursive=recursive, filter=filter_str, debug=debug)
             for tar in tar_list:
-                urls.append(f"pipe:aws s3 cp {s3_url_prefix}{name}/{tar} -")
+                tar = tar.replace(" ","\ ").replace("(","\(").replace(")","\)") # escape spaces and parentheses for shell
+                s3_path  = f"{name}/{subset}/{tar} -"
+                while '//' in s3_path:  # aws hates double-slashes
+                    s3_path = s3_path.replace('//','/')
+                request_str = f"pipe:aws s3 --cli-connect-timeout 0 cp {s3_url_prefix}{s3_path}" 
+                if debug: print("request_str = ",request_str)
+                urls.append(fix_double_slashes(request_str))
+    #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
     return urls
 
-# %% ../01_datasets.ipynb 43
+# %% ../01_datasets.ipynb 55
 class AudioDataset(torch.utils.data.Dataset):
     """
     Reads from a tree of directories and serves up cropped bits from any and all audio files
@@ -282,7 +328,7 @@ class AudioDataset(torch.utils.data.Dataset):
                
         return self[random.randrange(len(self))] if (audio is None) else audio
 
-# %% ../01_datasets.ipynb 46
+# %% ../01_datasets.ipynb 58
 class IterableAudioDataset(torch.utils.data.IterableDataset):
     "Iterable version of AudioDataset, used with Chain (below)"
     def __init__(self, 
@@ -309,11 +355,11 @@ class IterableAudioDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         yield self.this.__getitem__(random.randint(0, self.len))
 
-# %% ../01_datasets.ipynb 48
+# %% ../01_datasets.ipynb 61
 class HybridAudioDataset(torch.utils.data.IterableDataset):
     "Combines AudioDataset and WebDataset"
     def __init__(self, 
-        local_paths:list,             # list of strings of directory (/tree) names to draw audio files from
+        local_paths:list,      # list of local paths names to draw audio files from (recursively)
         webdataset_names:list,    # list of LAION Audiodataset or Internet Archive dataset names
         sample_rate=48000, # audio sample rate in Hz
         sample_size=65536, # how many audio samples in each "chunk"
@@ -325,13 +371,18 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
         silence_thresh=-60,  # threshold in dB below which we declare to be silence
         max_redraws=2,        # when redrawing silences, don't do it more than this many
         augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
-        verbose=False,       # whether to print notices of reasampling or not
-        subsets=['train','valid'],  # leave out 'test' for webdatasets
-        s3_url_prefixes=['s3://s-laion-audio/webdataset_tar/','s3://iarchive-stability/'], # where to look on s3 for things
+        verbose=False,      # whether to print notices of reasampling or not
+        subsets=[],         # can specify, e.g. ['train','valid'] to exclude 'test'. default= grab everything!
+        s3_url_prefixes=['s3://s-laion-audio/webdataset_tar/',
+                         's3://iarchive-stability/',
+                         's3://s-harmonai/datasets/'], # where to look on s3 for things
+        recursive=True,     # grab all tar files ("shards") recursively
+        debug=False,        # print debugging info
         ):
+        "Combines local paths and WebDataset (s3:) datasets, streaming. Recommend leaving local_paths blank"
         super().__init__()
         
-        if isinstance(webdataset_names, str): webdataset_names = [webdataset_names]
+        if isinstance(webdataset_names, str): webdataset_names = [webdataset_names] # if it's just a string, make it a list
         base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
         self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
         self.redraw_silence = redraw_silence
@@ -339,26 +390,23 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
         self.silence_thresh = silence_thresh
 
         self.local_ds, self.web_ds, self.len = None, None, 0
+        # local paths
         if len(local_paths) > 0:
             self.local_ds = IterableAudioDataset(local_paths, sample_rate=sample_rate, sample_size=sample_size, random_crop=random_crop,
                                     load_frac=load_frac, cache_training_data=cache_training_data, num_gpus=num_gpus,
                                     redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws,
                                     augs=None, verbose=verbose)  # do augs later
-            #self.len = len(self.local_ds)  # len will only return known length
-        if len(webdataset_names) > 0:
-            urls= []
-            for s3_url_prefix in s3_url_prefixes:
-                if 'iarchive' in s3_url_prefix: 
-                    urls0 = get_all_s3_urls(names=webdataset_names, subsets=[], s3_url_prefix=s3_url_prefix)
-                else:
-                    urls0 = get_all_s3_urls(names=webdataset_names, subsets=subsets, s3_url_prefix=s3_url_prefix)
-                if len(urls0) > 0:  urls = urls + urls0
-            self.web_ds = wds.WebDataset(urls).decode(wds.torch_audio).shuffle(10000).to_tuple("flac") 
-            print(f"WebDataset {webdataset_names} set up.")
+        # web i.e. s3 paths
+        urls= []
+        for s3_url_prefix in s3_url_prefixes: # loop over various s3 bucket urls. this is maybe dumb/slow but generally will only execute once per run
+            subset_list = [] if 'laion' not in s3_url_prefix else subsets
+            urls0 = get_all_s3_urls(names=webdataset_names, subsets=subset_list, s3_url_prefix=s3_url_prefix, recursive=recursive, debug=debug)
+            if debug: print("urls0 = \n",urls0)
+            if len(urls0) > 0:  urls = urls + urls0
+        self.web_ds = wds.WebDataset(urls,  nodesplitter=wds.split_by_node).decode(wds.torch_audio).to_tuple("flac") 
             
         self.ds_list = []
         if (self.local_ds != None): self.ds_list.append(self.local_ds)
-        #self.total_ds = torch.utils.data.ChainDataset((self.local_ds, self.web_ds))
         if (self.web_ds != None): self.ds_list.append(self.web_ds)
 
 
@@ -376,7 +424,6 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
         num_redraws = 0 
         while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
             and (num_redraws < self.max_redraws)):
-            next_idx = random.randint(0,len(self.filenames)-1)     # pick some other file at random
-            audio, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
+            audio, num_redraws = self.get_next_chunk(), num_redraws+1
 
         yield audio
