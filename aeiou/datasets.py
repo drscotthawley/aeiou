@@ -429,7 +429,7 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
         yield audio
 
 # %% ../01_datasets.ipynb 68
-def wds_preprocess(sample, sample_size=65536, sample_rate=48000):
+def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     "utility routine for QuickWebDataLoader, below"
     audio_keys = ("flac", "wav", "mp3", "aiff")
     found_key, rewrite_key = '', ''
@@ -446,7 +446,11 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000):
         print("       Skipping it.")
         return None  # try returning None to tell WebDataset to skip this one ?   
     
-    audio, sr = sample[found_key]
+    audio, in_sr = sample[found_key]
+    if in_sr != sample_rate:
+        if verbose: print(f"Resampling {filename} from {in_sr} Hz to {sample_rate} Hz",flush=True)
+        resample_tf = T.Resample(in_sr, sample_rate)
+        audio = resample_tf(audio)        
     myop = torch.nn.Sequential(PadCrop(sample_size), Stereo(), PhaseFlipper())
     audio = myop(audio)
     if found_key != rewrite_key:   # rename long/weird key with its simpler counterpart
@@ -457,12 +461,15 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000):
 # %% ../01_datasets.ipynb 69
 def QuickWebDataLoader(
     names=['ekto/1'], # names of datasets. will search laion, harmonai & IA s3 buckets for these
+    sample_size=65536, # how long each sample to grab via PadCrop
+    sample_rate=48000, # standard sr in Hz
     num_workers=4,    # in the PyTorch DataLoader sense
     batch_size=4,     # typical batch size
     audio_file_ext='flac',  # yep this one only supports one extension at a time. try HybridAudioDataset for more
     shuffle_vals=[1000, 10000],  # values passed into shuffle as per WDS tutorials
     epoch_len=1000,    # how many passes/loads make for an epoch? wds part of this is not well documented IMHO
     debug=False,       # print info on internal workings
+    verbose=False,     # not quite the same as debug. print things like notices of resampling
     ):
     "Minimal/quick implementation: Sets up a WebDataLoader with some typical defaults"
     print("Note: 'Broken pipe' messages you might get aren't a big deal, but may indicate files that are too big.")
@@ -474,7 +481,7 @@ def QuickWebDataLoader(
         wds.tarfile_to_samples(),
         wds.shuffle(shuffle_vals[0]),
         wds.decode(wds.torch_audio),
-        wds.map(wds_preprocess),
+        wds.map(partial(wds_preprocess, sample_size=sample_size, sample_rate=sample_rate, verbose=verbose)),
         wds.shuffle(shuffle_vals[1]),
         wds.to_tuple(audio_file_ext),
         wds.batched(batch_size)
