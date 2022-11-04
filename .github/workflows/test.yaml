@@ -1,3 +1,6 @@
+name: CI
+on:  [workflow_dispatch, pull_request, push]
+
 jobs:
   test:
     runs-on: ubuntu-latest
