@@ -14,14 +14,17 @@ import json
 import tqdm
 from multiprocessing import Pool, cpu_count
 from functools import partial
-from .core import load_audio, get_audio_filenames, is_silence
+from .core import load_audio, get_audio_filenames, is_silence, untuple
+from .viz import playable_spectrogram
 from fastcore.utils import *
 import webdataset as wds
 import subprocess
+import re
 
 # %% auto 0
 __all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'RandomGain', 'get_s3_contents',
-           'get_contiguous_range', 'download_webdataset_json', 'DataInfo', 'get_wds_dataset', 'AudioDataset']
+           'get_contiguous_range', 'fix_double_slashes', 'get_all_s3_urls', 'AudioDataset', 'IterableAudioDataset',
+           'HybridAudioDataset', 'wds_preprocess', 'QuickWebDataLoader']
 
 # %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
@@ -133,16 +136,36 @@ class RandomGain(nn.Module):
         signal = signal * gain
         return signal
 
-# %% ../01_datasets.ipynb 17
-def get_s3_contents(dataset_path, s3_url_prefix='s3://s-laion-audio/webdataset_tar', filter=''):
+# %% ../01_datasets.ipynb 18
+def get_s3_contents(
+    dataset_path,     # "name" of the dataset on s3
+    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',  # s3 bucket to check
+    filter='',       # only grab certain filename / extensions
+    recursive=True,  # check all subdirectories. RECOMMEND LEAVING THIS TRUE
+    debug=False,     # print debugging info (don't rely on this info staying consistent)
+    ):
     "Gets a list of names of files or subdirectories on an s3 path"
-    run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}/{dataset_path}/'], capture_output=True)
-    result = subprocess.run(['awk','{print $NF}'],input=run_ls.stdout, capture_output=True)
-    contents = result.stdout.decode('utf-8').strip().replace('/','').split('\n')
-    contents = [x for x in contents if x] # list of non-empty strings
+    if (dataset_path != '') and (not dataset_path.endswith('/')): 
+        dataset_path = dataset_path + '/'
+    dataset_path = dataset_path.replace('//','/') # aws is baffled by double slashes in dir names
+    if not recursive:
+        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}'], capture_output=True)
+    else:
+        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}','--recursive'], capture_output=True)
+        run_ls = subprocess.run(["awk",'{$1=$2=$3=""; print $0}'], input=run_ls.stdout, capture_output=True)
+        run_ls = subprocess.run(["sed",'s/^[ \t]*//'], input=run_ls.stdout, capture_output=True)
+    contents = run_ls.stdout.decode('utf-8').split('\n') 
+    contents = [x.strip() for x in contents if x]      # list of non-empty strings, without leading whitespace
+    contents = [x.replace('PRE ','') if (x[-1]=='/') else x for x in contents]  # directories
+    #contents = [''.join(x.split(' ')[4:]) if (x[-1]!='/') else x for x in contents]    # files
+    if recursive:  # recursive flag weirdly adds redundant extr directory name taken from s3 url, so we should strip
+        main_dir = s3_url_prefix.split('/')[-2]
+        if debug: print("main_dir =",main_dir)
+        contents = [x.replace(f'{main_dir}/','').replace(dataset_path,'').replace('//','/') for x in contents]
+        if debug: print("contents = ",contents)
     return [x for x in contents if filter in x] # return filtered list
 
-# %% ../01_datasets.ipynb 24
+# %% ../01_datasets.ipynb 29
 def get_contiguous_range(
     tar_names, # list of tar file names, although the .tar part is actually optional
     ):
@@ -159,189 +182,51 @@ def get_contiguous_range(
         print("get_contiguous_range: File numbers not continuous")  # have to do more work
         return '' # empty string will signify no dice; signal for more work to be done
 
-# %% ../01_datasets.ipynb 37
-def download_webdataset_json(
-    datasetnames,              # list of names of valid AudioDataset datasets / paths
-    dataset_split={},          # keys are dataset names, values are lists of subdirs
-    src_prefix='s3://s-laion-audio/webdataset_tar', # parent location where the dataset lives
-    dst_prefix='./json_files', # local path to save the json
-    force=False,            # Force new download even if local copy exists
-    ):
-    "Downloads the json info of webdataset (sub-)file sizes"
-    for dataset_name in datasetnames:
-        splits = dataset_split if dataset_split!={} else get_s3_contents(dataset_name)
-        for split in splits:
-            if not os.path.exists(f"./json_files/{dataset_name}/{split}"): # make sure local dir to hold json exists
-                os.makedirs(f"./json_files/{dataset_name}/{split}")
-            dst = f"{dst_prefix}/{dataset_name}/{split}/sizes.json"
-            if force or not os.path.exists(dst):
-                os.system(        # TODO: replace os.system with subprocess.run
-                    f"aws s3 cp {src_prefix}/{dataset_name}/{split}/sizes.json {dst_prefix}/{dataset_name}/{split}/sizes.json"
-                )
-            #else: print("Already got it")
-
-# %% ../01_datasets.ipynb 49
-# taken from LAION CLAP repo, https://github.com/LAION-AI/CLAP/blob/d2d5dae8ea8f1ee02ac40242418a36d1d567943a/src/training/data.py
-
-from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
-from torch.utils.data.distributed import DistributedSampler
-from dataclasses import dataclass
-
-@dataclass
-class DataInfo:
-    dataloader: DataLoader
-    sampler: DistributedSampler
-        
-
-def get_wds_dataset(
-    args,
-    model_cfg,
-    is_train,
-    audio_ext="flac",
-    text_ext="json",
-    max_len=480000,
-    proportion=1.0,
-    sizefilepath_=None,
-    is_local=None,
-):
-    """
-    Get a dataset for wdsdataloader.
-    """
-    if is_local is None and (not args.remotedata is None):
-        is_local = not args.remotedata
-
-    input_shards = args.train_data if is_train else args.val_data
-    assert input_shards is not None
-
-    if not sizefilepath_ is None:
-        sizefilepath = sizefilepath_
+# %% ../01_datasets.ipynb 47
+def fix_double_slashes(s, debug=False):
+    "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
+    cdsh_split = s.split('://')
+    assert (len(cdsh_split) <= 2) and (len(cdsh_split) > 0), f'what kind of string are you using? s={s}'
+    post = cdsh_split[-1]
+    while '//' in post: 
+        post = post.replace('//','/')
+    if len(cdsh_split) > 1: 
+        return cdsh_split[0] + '://' + post
     else:
-        sizefilepath = os.path.join(os.path.dirname(input_shards[0]), "sizes.json")
+        return post
 
-    if proportion != 1.0:
-        num_samples, num_shards, input_shards, _ = sample_prop(
-            sizefilepath, input_shards, proportion, is_local=is_local
-        )
-    else:
-        num_samples, num_shards = get_dataset_size(
-            input_shards, sizefilepath_=sizefilepath_, is_local=is_local
-        )
+# %% ../01_datasets.ipynb 51
+def get_all_s3_urls(
+    names=['FSD50K'],    # list of all valid [LAION AudioDataset] dataset names 
+    subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
+    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those
+    recursive=True,  # recursively list all tar files in all subdirs
+    filter_str='tar', # only grab files with this substring
+    debug=False,     # print debugging info -- note: info displayed likely to change at dev's whims
+    ): 
+    "get urls of shards (tar files) for multiple datasets in one s3 bucket"
+    if s3_url_prefix[-1] != '/':  s3_url_prefix = s3_url_prefix + '/'
+    urls = []
+    names = [''] if names == [] else names # for loop below
+    subsets = [''] if subsets == [] else subsets # for loop below
+    for name in names:
+        if debug: print(f"get_all_s3_urls: {s3_url_prefix}{name}:")
+        for subset in subsets:
+            contents_str = fix_double_slashes(f'{name}/{subset}/')
+            if debug: print("contents_str =",contents_str)
+            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_url_prefix, recursive=recursive, filter=filter_str, debug=debug)
+            for tar in tar_list:
+                tar = tar.replace(" ","\ ").replace("(","\(").replace(")","\)") # escape spaces and parentheses for shell
+                s3_path  = f"{name}/{subset}/{tar} -"
+                while '//' in s3_path:  # aws hates double-slashes
+                    s3_path = s3_path.replace('//','/')
+                request_str = f"pipe:aws s3 --cli-connect-timeout 0 cp {s3_url_prefix}{s3_path}" 
+                if debug: print("request_str = ",request_str)
+                urls.append(fix_double_slashes(request_str))
+    #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
+    return urls
 
-    if not num_samples:
-        if is_train:
-            num_samples = args.train_num_samples
-            if not num_samples:
-                raise RuntimeError(
-                    "Currently, number of dataset samples must be specified for training dataset. "
-                    "Please specify via `--train-num-samples` if no dataset length info present."
-                )
-        else:
-            num_samples = (
-                args.val_num_samples or 0
-            )  # eval will just exhaust the iterator if not specified
-
-    pipeline = [wds.SimpleShardList(input_shards)]    # re. Pipeline: cf https://github.com/webdataset/webdataset#pipeline-interface
-    # at this point we have an iterator over all the shards
-    if is_train or args.parallel_eval:
-        pipeline.extend(
-            [
-                wds.detshuffle(
-                    bufsize=_SHARD_SHUFFLE_SIZE,
-                    initial=_SHARD_SHUFFLE_INITIAL,
-                    seed=args.seed,
-                ),
-                wds.split_by_node,
-                wds.split_by_worker,
-                # at this point, we have an iterator over the shards assigned to each worker at each node
-                wds.tarfile_to_samples(handler=log_and_continue),
-                wds.shuffle(
-                    bufsize=_SAMPLE_SHUFFLE_SIZE,
-                    initial=_SAMPLE_SHUFFLE_INITIAL,
-                    rng=random.Random(args.seed),
-                ),
-                # wds.repeatedly,  # FIXME determine if this is beneficial
-            ]
-        )
-    else:
-        pipeline.extend(
-            [
-                wds.split_by_worker,
-                # at this point, we have an iterator over the shards assigned to each worker
-                wds.tarfile_to_samples(handler=log_and_continue),
-            ]
-        )
-    pipeline.append(
-        wds.map(
-            partial(
-                preprocess,
-                audio_ext=audio_ext,
-                text_ext=text_ext,
-                max_len=max_len,
-                class_index_dict=copy.deepcopy(args.class_index_dict),
-                data_filling=args.data_filling,
-            )
-        ),
-    )
-
-    pipeline.append(
-        wds.batched(
-            args.batch_size,
-            partial=not (is_train or args.parallel_eval),
-            collation_fn=collate_fn,
-        )
-    )
-
-    dataset = wds.DataPipeline(*pipeline) # Instantiate list as Pipeline
-    
-    if is_train or args.parallel_eval:
-        # (yusong): Currently parallel evaluation will be not precise as we are repeat the last few samples.
-        # (yusong): See comments below.
-        # roll over and repeat a few samples to get same number of full batches on each node
-        global_batch_size = args.batch_size * args.world_size
-        num_batches = math.ceil(num_samples / global_batch_size)
-        num_workers = max(1, args.workers)
-        num_worker_batches = math.ceil(
-            num_batches / num_workers
-        )  # per dataloader worker
-        num_batches = num_worker_batches * num_workers
-        num_samples = num_batches * global_batch_size
-        dataset = dataset.with_epoch(
-            num_worker_batches
-        )  # each worker is iterating over this
-    else:
-        # last batches are partial, eval is done on single (master) node
-        num_batches = math.ceil(num_samples / args.batch_size)
-
-    kwargs = {}
-    if args.horovod:  # multi-node training on summit
-        kwargs["multiprocessing_context"] = "forkserver"
-
-    dataloader = wds.WebLoader(
-        dataset, batch_size=None, shuffle=False, num_workers=args.workers, **kwargs
-    )
-
-    # FIXME not clear which approach is better, with_epoch before vs after dataloader?
-    # hoping to resolve via https://github.com/webdataset/webdataset/issues/169
-    # if is_train:
-    #     # roll over and repeat a few samples to get same number of full batches on each node
-    #     global_batch_size = args.batch_size * args.world_size
-    #     num_batches = math.ceil(num_samples / global_batch_size)
-    #     num_workers = max(1, args.workers)
-    #     num_batches = math.ceil(num_batches / num_workers) * num_workers
-    #     num_samples = num_batches * global_batch_size
-    #     dataloader = dataloader.with_epoch(num_batches)
-    # else:
-    #     # last batches are partial, eval is done on single (master) node
-    #     num_batches = math.ceil(num_samples / args.batch_size)
-
-    # add meta-data to dataloader instance for convenience
-    dataloader.num_batches = num_batches
-    dataloader.num_samples = num_samples
-
-    return DataInfo(dataloader, None)
-
-
-# %% ../01_datasets.ipynb 53
+# %% ../01_datasets.ipynb 55
 class AudioDataset(torch.utils.data.Dataset):
     """
     Reads from a tree of directories and serves up cropped bits from any and all audio files
@@ -367,7 +252,7 @@ class AudioDataset(torch.utils.data.Dataset):
         print("augs =",augs)
         # base_augs are always applied
         base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
-        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
+        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  if augs is not None else None 
         self.silence_thresh = silence_thresh
         self.redraw_silence = redraw_silence
         self.max_redraws = max_redraws
@@ -419,25 +304,20 @@ class AudioDataset(torch.utils.data.Dataset):
                 audio = self.audio_files[idx] # .copy()
             else:
                 audio = load_audio(audio_filename, sr=self.sr, verbose=self.verbose)
-
-            #Run augmentations on this sample (including random crop)
-            if self.augs is not None:
+            if self.augs is not None:         #Run augmentations on this sample (including random crop)
                 audio = self.augs(audio)
-                
             audio = audio.clamp(-1, 1)
             return audio
         
         except Exception as e:
-          print(f'Error loading file {audio_filename}: {e}')
-          return None
-        
+            print(f'AudioDataset.get_next_chunk: Error loading file {audio_filename}: {e}')
+            return None
         
         
     def __getitem__(self, 
         idx     # the index of the file within the list of files
         ):
         audio = self.get_next_chunk(idx)
-                
         # even with PadCrop set to reject silences, it could be that the whole file is silence; 
         num_redraws = 0 
         while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
@@ -447,3 +327,163 @@ class AudioDataset(torch.utils.data.Dataset):
             audio, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
                
         return self[random.randrange(len(self))] if (audio is None) else audio
+
+# %% ../01_datasets.ipynb 58
+class IterableAudioDataset(torch.utils.data.IterableDataset):
+    "Iterable version of AudioDataset, used with Chain (below)"
+    def __init__(self, 
+        paths,             # list of strings of directory (/tree) names to draw audio files from
+        sample_rate=48000, # audio sample rate in Hz
+        sample_size=65536, # how many audio samples in each "chunk"
+        random_crop=True,  # take chunks from random positions within files
+        load_frac=1.0,     # fraction of total dataset to load
+        cache_training_data=False,  # True = pre-load whole dataset into memory (not fully supported)
+        num_gpus=8,        # used only when `cache_training_data=True`, to avoid duplicates,
+        redraw_silence=True, # a chunk containing silence will be replaced with a new one
+        silence_thresh=-60,  # threshold in dB below which we declare to be silence
+        max_redraws=2,        # when redrawing silences, don't do it more than this many
+        augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
+        verbose=False,       # whether to print notices of reasampling or not
+        ):
+        super().__init__()
+        self.this = AudioDataset(paths, sample_rate=sample_rate, sample_size=sample_size, random_crop=random_crop,
+                                load_frac=load_frac, cache_training_data=cache_training_data, num_gpus=num_gpus,
+                                redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws,
+                                augs=augs, verbose=verbose)
+        self.len = len(self.this)
+        
+    def __iter__(self):
+        yield self.this.__getitem__(random.randint(0, self.len))
+
+# %% ../01_datasets.ipynb 61
+class HybridAudioDataset(torch.utils.data.IterableDataset):
+    "Combines AudioDataset and WebDataset"
+    def __init__(self, 
+        local_paths:list,      # list of local paths names to draw audio files from (recursively)
+        webdataset_names:list,    # list of LAION Audiodataset or Internet Archive dataset names
+        sample_rate=48000, # audio sample rate in Hz
+        sample_size=65536, # how many audio samples in each "chunk"
+        random_crop=True,  # take chunks from random positions within files
+        load_frac=1.0,     # fraction of total dataset to load
+        cache_training_data=False,  # True = pre-load whole dataset into memory (not fully supported)
+        num_gpus=8,        # used only when `cache_training_data=True`, to avoid duplicates,
+        redraw_silence=True, # a chunk containing silence will be replaced with a new one
+        silence_thresh=-60,  # threshold in dB below which we declare to be silence
+        max_redraws=2,        # when redrawing silences, don't do it more than this many
+        augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
+        verbose=False,      # whether to print notices of reasampling or not
+        subsets=[],         # can specify, e.g. ['train','valid'] to exclude 'test'. default= grab everything!
+        s3_url_prefixes=['s3://s-laion-audio/webdataset_tar/',
+                         's3://iarchive-stability/',
+                         's3://s-harmonai/datasets/'], # where to look on s3 for things
+        recursive=True,     # grab all tar files ("shards") recursively
+        debug=False,        # print debugging info
+        ):
+        "Combines local paths and WebDataset (s3:) datasets, streaming. Recommend leaving local_paths blank"
+        super().__init__()
+        
+        if isinstance(webdataset_names, str): webdataset_names = [webdataset_names] # if it's just a string, make it a list
+        base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
+        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
+        self.redraw_silence = redraw_silence
+        self.max_redraws = max_redraws
+        self.silence_thresh = silence_thresh
+
+        self.local_ds, self.web_ds, self.len = None, None, 0
+        # local paths
+        if len(local_paths) > 0:
+            self.local_ds = IterableAudioDataset(local_paths, sample_rate=sample_rate, sample_size=sample_size, random_crop=random_crop,
+                                    load_frac=load_frac, cache_training_data=cache_training_data, num_gpus=num_gpus,
+                                    redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws,
+                                    augs=None, verbose=verbose)  # do augs later
+        # web i.e. s3 paths
+        urls= []
+        for s3_url_prefix in s3_url_prefixes: # loop over various s3 bucket urls. this is maybe dumb/slow but generally will only execute once per run
+            subset_list = [] if 'laion' not in s3_url_prefix else subsets
+            urls0 = get_all_s3_urls(names=webdataset_names, subsets=subset_list, s3_url_prefix=s3_url_prefix, recursive=recursive, debug=debug)
+            if debug: print("urls0 = \n",urls0)
+            if len(urls0) > 0:  urls = urls + urls0
+        self.web_ds = wds.WebDataset(urls,  nodesplitter=wds.split_by_node).decode(wds.torch_audio).to_tuple("flac") 
+            
+        self.ds_list = []
+        if (self.local_ds != None): self.ds_list.append(self.local_ds)
+        if (self.web_ds != None): self.ds_list.append(self.web_ds)
+
+
+    def get_next_chunk(self):
+        ds_choice = random.choice(self.ds_list)  # randomly pick from available ds list
+        audio = untuple(next(iter(ds_choice)))   
+        if self.augs is not None: #Run augmentations on this sample (including random crop)
+            audio = self.augs(audio)
+        audio = audio.clamp(-1, 1)
+        return audio
+            
+        
+    def __iter__(self):
+        audio = self.get_next_chunk()
+        num_redraws = 0 
+        while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
+            and (num_redraws < self.max_redraws)):
+            audio, num_redraws = self.get_next_chunk(), num_redraws+1
+
+        yield audio
+
+# %% ../01_datasets.ipynb 68
+def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
+    "utility routine for QuickWebDataLoader, below"
+    audio_keys = ("flac", "wav", "mp3", "aiff")
+    found_key, rewrite_key = '', ''
+    for k,v in sample.items():  # print the all entries in dict
+        for akey in audio_keys:
+            if k.endswith(akey): 
+                found_key, rewrite_key = k, akey  # to rename long/weird key with its simpler counterpart
+                break
+        if '' != found_key: break 
+    if '' == found_key:  # got no audio!   
+        print("  Error: No audio in this sample:")
+        for k,v in sample.items():  # print the all entries in dict
+            print(f"    {k:20s} {repr(v)[:50]}")
+        print("       Skipping it.")
+        return None  # try returning None to tell WebDataset to skip this one ?   
+    
+    audio, in_sr = sample[found_key]
+    if in_sr != sample_rate:
+        if verbose: print(f"Resampling {filename} from {in_sr} Hz to {sample_rate} Hz",flush=True)
+        resample_tf = T.Resample(in_sr, sample_rate)
+        audio = resample_tf(audio)        
+    myop = torch.nn.Sequential(PadCrop(sample_size), Stereo(), PhaseFlipper())
+    audio = myop(audio)
+    if found_key != rewrite_key:   # rename long/weird key with its simpler counterpart
+        del sample[found_key]
+    sample[rewrite_key] = audio    
+    return sample
+
+# %% ../01_datasets.ipynb 69
+def QuickWebDataLoader(
+    names=['ekto/1'], # names of datasets. will search laion, harmonai & IA s3 buckets for these
+    sample_size=65536, # how long each sample to grab via PadCrop
+    sample_rate=48000, # standard sr in Hz
+    num_workers=4,    # in the PyTorch DataLoader sense
+    batch_size=4,     # typical batch size
+    audio_file_ext='flac',  # yep this one only supports one extension at a time. try HybridAudioDataset for more
+    shuffle_vals=[1000, 10000],  # values passed into shuffle as per WDS tutorials
+    epoch_len=1000,    # how many passes/loads make for an epoch? wds part of this is not well documented IMHO
+    debug=False,       # print info on internal workings
+    verbose=False,     # not quite the same as debug. print things like notices of resampling
+    ):
+    "Minimal/quick implementation: Sets up a WebDataLoader with some typical defaults"
+    print("Note: 'Broken pipe' messages you might get aren't a big deal, but may indicate files that are too big.")
+    if names is not list: names = [names]
+    urls = get_all_s3_urls(names=names, recursive=True, debug=debug) 
+    if debug: print("urls =\n",urls)
+    dataset = wds.DataPipeline(
+        wds.ResampledShards(urls),
+        wds.tarfile_to_samples(),
+        wds.shuffle(shuffle_vals[0]),
+        wds.decode(wds.torch_audio),
+        wds.map(partial(wds_preprocess, sample_size=sample_size, sample_rate=sample_rate, verbose=verbose)),
+        wds.shuffle(shuffle_vals[1]),
+        wds.to_tuple(audio_file_ext),
+        wds.batched(batch_size)
+    ).with_epoch(epoch_len)
+    return wds.WebLoader(dataset, num_workers=num_workers)

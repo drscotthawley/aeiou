@@ -147,3 +147,15 @@ def get_audio_filenames(
         subfolders, files = fast_scandir(path, ['.wav','.flac','.ogg','.aiff','.aif','.mp3'])
         filenames.extend(files)
     return filenames
+
+# %% ../00_core.ipynb 44
+def untuple(x, verbose=False):
+    """Recursive.  For when you're sick of tuples and lists: 
+    keeps peeling off elements until we get a non-tuple or non-list, 
+    i.e., returns the 'first' data element we can 'actually use'"""
+    if isinstance(x, tuple) or isinstance(x, list): 
+        if verbose: print("yea: x = ",x)
+        return untuple(x[0], verbose=verbose)
+    else:
+        if verbose: print("no: x = ",x)
+        return x
