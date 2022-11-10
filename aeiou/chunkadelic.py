@@ -12,7 +12,7 @@ from tqdm.contrib.concurrent import process_map
 import torch
 import torchaudio
 import math
-from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio
+from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio, get_dbmax
 
 # %% ../03_chunkadelic.ipynb 7
 def blow_chunks(
@@ -20,7 +20,7 @@ def blow_chunks(
     new_filename:str,    # stem of new filename(s) to be output as chunks
     chunk_size:int,      # how big each audio chunk is, in samples
     sr=48000,            # audio sample rate in Hz
-    norm=False,          # normalize audio, based on the max of the absolute value [global/channel]
+    norm=False,          # normalize input audio, based on the max of the absolute value [global/channel]
     spacing=0.5,         # fraction of each chunk to advance between hops
     strip=False,    # strip silence: chunks with max power in dB below this value will not be saved to files
     thresh=-70      # threshold in dB for determining what counts as silence 
@@ -28,15 +28,17 @@ def blow_chunks(
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
     chunk = torch.zeros(audio.shape[0], chunk_size)
     _, ext = os.path.splitext(new_filename)
-
-        # normalize audio if requested
+    
+    # normalize audio if requested 
     if norm is True: # handle the most likely improper response defaulted to 'global'
         norm = 'global'
-    if norm in ['global','channel']:
-        print(f"normalizing {new_filename} with type {norm}")
-        audio = normalize_audio(audio, norm)
-    
-    spacing = 0.5 if spacing is 0 else spacing # handle degenerate case as a request for the defaults
+    if norm in ['global','channel']:       
+        audio_norm = normalize_audio(audio, norm)     
+        gain_db = abs(get_dbmax(audio)) - abs(get_dbmax(audio_norm))   
+        print(f"normalized {new_filename} with type {norm} creating {gain_db[:4]}dB change ", flush=True)
+        audio=audio_norm
+
+    spacing = 0.5 if spacing == 0 else spacing # handle degenerate case as a request for the defaults
     
     start, i = 0, 0
     while start < audio.shape[-1]:
@@ -64,7 +66,7 @@ def process_one_file(
     new_filename = None
     
     for ipath in input_paths: # set up the output filename & any folders it needs
-        if args.nomix and ('Mix' in ipath) and ('Audio Files' in path): return  # this is specific to the BDCT dataset, otherwise ignore
+        if args.nomix and ('Mix' in ipath) and ('Audio Files' in ipath): return  # this is specific to the BDCT dataset, otherwise ignore
         if ipath in filename:
             last_ipath = ipath.split('/')[-1]           # get the last part of ipath
             clean_filename = filename.replace(ipath,'') # remove all of ipath from the front of filename
@@ -88,7 +90,7 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--chunk_size', type=int, default=2**17, help='Length of chunks')
     parser.add_argument('--sr', type=int, default=48000, help='Output sample rate')
-    parser.add_argument('--norm', action='store_true', help='Normalize audio, based on the max of the absolute value [global/channel]')
+    parser.add_argument('--norm', action='store', metavar='False', default=False, help='Normalize audio, based on the max of the absolute value [global/channel/False]')
     parser.add_argument('--spacing', type=float, default=0.5, help='Spacing factor, advance this fraction of a chunk per copy')
     parser.add_argument('--strip', action='store_true', help='Strips silence: chunks with max dB below <thresh> are not outputted')
     parser.add_argument('--thresh', type=int, default=-70, help='threshold in dB for determining what constitutes silence')
