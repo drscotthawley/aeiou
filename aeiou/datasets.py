@@ -470,6 +470,8 @@ def QuickWebDataLoader(
     epoch_len=1000,    # how many passes/loads make for an epoch? wds part of this is not well documented IMHO
     debug=False,       # print info on internal workings
     verbose=False,     # not quite the same as debug. print things like notices of resampling
+    callback=wds_preprocess, # function to call for additional user-based processing
+    **kwargs,          # what else to pass to callback
     ):
     "Minimal/quick implementation: Sets up a WebDataLoader with some typical defaults"
     print("Note: 'Broken pipe' messages you might get aren't a big deal, but may indicate files that are too big.")
@@ -481,7 +483,7 @@ def QuickWebDataLoader(
         wds.tarfile_to_samples(),
         wds.shuffle(shuffle_vals[0]),
         wds.decode(wds.torch_audio),
-        wds.map(partial(wds_preprocess, sample_size=sample_size, sample_rate=sample_rate, verbose=verbose)),
+        wds.map(partial(callback, sample_size=sample_size, sample_rate=sample_rate, verbose=verbose, **kwargs)),
         wds.shuffle(shuffle_vals[1]),
         wds.to_tuple(audio_file_ext),
         wds.batched(batch_size)

@@ -2,7 +2,7 @@
 
 # %% auto 0
 __all__ = ['is_tool', 'normalize_audio', 'load_audio', 'get_dbmax', 'audio_float_to_int', 'is_silence', 'batch_it_crazy',
-           'makedir', 'fast_scandir', 'get_audio_filenames']
+           'makedir', 'fast_scandir', 'get_audio_filenames', 'untuple']
 
 # %% ../00_core.ipynb 4
 import torch
@@ -148,7 +148,7 @@ def get_audio_filenames(
         filenames.extend(files)
     return filenames
 
-# %% ../00_core.ipynb 44
+# %% ../00_core.ipynb 47
 def untuple(x, verbose=False):
     """Recursive.  For when you're sick of tuples and lists: 
     keeps peeling off elements until we get a non-tuple or non-list, 
