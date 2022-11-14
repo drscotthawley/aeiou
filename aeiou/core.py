@@ -50,9 +50,9 @@ def load_audio(
     norm='',     # passedto normalize_audio(), see above
     )->torch.tensor:
     "this loads an audio file as a torch tensor"
-    if '.mp3' in filename.lower() and not is_tool('ffmpeg'):  # don't rely on ffmpeg being installed
-        print('Please install FFmpeg for MP3 support')
-        return None
+    if '.mp3' in filename.lower():  # don't rely on torchaudio for mp3s, librosa is more 'kind'
+        audio, in_sr = librosa.load(filename, mono=False, sr=sr) # why librosa defaults to mono is beyond me
+        audio = torch.tensor(audio)
     else:
         audio, in_sr = torchaudio.load(filename)
     if in_sr != sr:
