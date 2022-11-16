@@ -54,7 +54,7 @@ documentation! To contribute:
     `git add *.ipynb aeiou/*.py; git commit` and then `git push` to get
     your changes to back to your fork on GitHub.
 
-7.  Then send a Pull Request from your fork to the main `aeiou`
+7.  Then send a Pull Request from your fork to the `dev` branch of this original `aeiou`
     repository.
 
 ## Attribution
