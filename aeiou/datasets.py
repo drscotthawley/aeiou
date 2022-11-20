@@ -82,6 +82,7 @@ class FillTheNoise(nn.Module):
 # %% ../01_datasets.ipynb 10
 class RandPool(nn.Module):
     def __init__(self, p=0.2):
+        super().__init__()
         self.p, self.maxkern = p, 100
     def __call__(self, signal):
         if (random.random() < self.p):
@@ -169,6 +170,7 @@ class RandMask1D(nn.Module):
         verbose = False,       # show logging info
         ):
         "Performs masking or 'cutout' along 1d data. Can support 'smooth sides' to the cutouts"
+        super().__init__()
         if mask_width < 1: self.mask_width_frac = mask_width   # if float is given, set fraction of chunk length for each mask
         self.mask_frac,  self.mask_width, self.mask_type, self.edge_width, self.verbose = mask_frac, mask_width, mask_type, edge_width, verbose
         self.mask = None       # mask is only setup (once and for all) when forward() is called
