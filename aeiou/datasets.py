@@ -29,6 +29,7 @@ __all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 
 
 # %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
+    "Grabs a random crop from an audio tensor, padding with zeros if necessary"
     def __init__(self, 
         n_samples,           # length of chunk to extract from longer signal
         randomize=True,      # draw cropped chunk from a random position in audio file
@@ -81,6 +82,7 @@ class FillTheNoise(nn.Module):
 
 # %% ../01_datasets.ipynb 10
 class RandPool(nn.Module):
+    "Perform pooling with random-sized kernels"
     def __init__(self, p=0.2):
         super().__init__()
         self.p, self.maxkern = p, 100
@@ -162,6 +164,7 @@ def smoothstep_box(
 
 # %% ../01_datasets.ipynb 22
 class RandMask1D(nn.Module):
+    "Performs masking or 'cutout' along 1d data. Can support 'smooth sides' to the cutouts"
     def __init__(self, 
         mask_frac=0.25,        # fraction of total input that is to be masked (helps compute no. of masked regions)
         mask_width=0.1,        # either a fraction of the total length (float < 1) or an exact integer value for length of each masked region
@@ -169,7 +172,6 @@ class RandMask1D(nn.Module):
         edge_width=0.2,        # for mask_type=smoothstep, fraction or integer value of transition regions to come in from the sides of zeros region
         verbose = False,       # show logging info
         ):
-        "Performs masking or 'cutout' along 1d data. Can support 'smooth sides' to the cutouts"
         super().__init__()
         if mask_width < 1: self.mask_width_frac = mask_width   # if float is given, set fraction of chunk length for each mask
         self.mask_frac,  self.mask_width, self.mask_type, self.edge_width, self.verbose = mask_frac, mask_width, mask_type, edge_width, verbose
