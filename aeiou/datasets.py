@@ -22,9 +22,10 @@ import subprocess
 import re
 
 # %% auto 0
-__all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'RandomGain', 'get_s3_contents',
-           'get_contiguous_range', 'fix_double_slashes', 'get_all_s3_urls', 'AudioDataset', 'IterableAudioDataset',
-           'HybridAudioDataset', 'wds_preprocess', 'QuickWebDataLoader']
+__all__ = ['PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'RandomGain', 'smoothstep',
+           'smoothstep_box', 'RandMask1D', 'get_s3_contents', 'get_contiguous_range', 'fix_double_slashes',
+           'get_all_s3_urls', 'AudioDataset', 'IterableAudioDataset', 'HybridAudioDataset', 'wds_preprocess',
+           'QuickWebDataLoader']
 
 # %% ../01_datasets.ipynb 7
 class PadCrop(nn.Module):
@@ -136,7 +137,85 @@ class RandomGain(nn.Module):
         signal = signal * gain
         return signal
 
-# %% ../01_datasets.ipynb 18
+# %% ../01_datasets.ipynb 16
+def smoothstep(x, # a tensor of coordinates across a domain, e.g. [0,1]
+    edge0=0.4, # "zero"/"left" side of smoothstep
+    edge1=0.6, # "one"/"right" side of smoothstep
+    ):
+    "an s-shaped curve, 0's on left side and 1's at right side, with gradient zero at all 1's and 0's. cf. https://en.wikipedia.org/wiki/Smoothstep"
+    x = torch.where(x < edge0, 0, x)
+    x = torch.where(x > edge1, 1, x)
+    x = torch.where( torch.logical_and(x >= edge0, x <= edge1) , (x - edge0) / (edge1 - edge0), x )
+    return x * x * (3 - 2 * x)
+
+# %% ../01_datasets.ipynb 17
+def smoothstep_box(
+    coords, # tensor of coordinate values
+    edges = (0.2,0.3,0.5,0.6) # (left 1's boundary, left 0's boundary, right 0's boundary, right 1's boundary)
+    ): 
+    "makes a flat region of zeros that transitions smoothly to 1's via smoothsteps at the sides"
+    assert edges[0] < edges[1] and edges[1] < edges[2] and edges[2] < edges[3], f"Edges should be in increasing order but you have edges = {edges}"
+    right = smoothstep(coords, edge0=edges[2], edge1=edges[3])
+    left = 1 - smoothstep(coords, edge0=edges[0], edge1=edges[1])
+    return left + right
+
+# %% ../01_datasets.ipynb 22
+class RandMask1D(nn.Module):
+    def __init__(self, 
+        mask_frac=0.25,        # fraction of total input that is to be masked (helps compute no. of masked regions)
+        mask_width=0.1,        # either a fraction of the total length (float < 1) or an exact integer value for length of each masked region
+        mask_type='simple',    # 'simple'=hard sides to cuts, 'softstep'=smooth sides
+        edge_width=0.2,        # for mask_type=smoothstep, fraction or integer value of transition regions to come in from the sides of zeros region
+        verbose = False,       # show logging info
+        ):
+        "Performs masking or 'cutout' along 1d data. Can support 'smooth sides' to the cutouts"
+        if mask_width < 1: self.mask_width_frac = mask_width   # if float is given, set fraction of chunk length for each mask
+        self.mask_frac,  self.mask_width, self.mask_type, self.edge_width, self.verbose = mask_frac, mask_width, mask_type, edge_width, verbose
+        self.mask = None       # mask is only setup (once and for all) when forward() is called
+
+    def make_single_mask(self, x, min_val=0):
+        "allocate a 1D group of min_vals (zeros) amidst a bunch of 1's. Put the zeros/min_vals values in the middle"
+        self.mask = torch.ones(x.shape[-1])
+        start = max(0, (x.shape[-1] - self.mask_width)//2 ) 
+        end =   min(start + self.mask_width, x.shape[-1])   # don't go over the edge
+        if self.mask_type == 'simple': 
+            self.mask[start:end] = min_val                  
+        elif self.mask_type == 'smoothstep':       
+            coords = torch.linspace(0,1, steps=x.shape[-1])  
+            ew = self.edge_width if isinstance(self.edge_width,int) else int((end-start)*self.edge_width) # edge width in samples
+            self.mask = smoothstep_box(coords, edges=[coords[i] for i in [start, start+ew, end-ew, end]])
+        else:
+            assert False, f"Error: Unsupported mask type: '{self.mask_type}'"
+
+    def mask_once_1channel(self, 
+        xc,            # one channel of x
+        move=None,     # amount by which to shift the mask around, in samples
+        start_loc = None, # can specify where to start from (typically leave this as None)
+        ):
+        "excises one mask region for one channel (hence '_1c') in one batch"
+        # shift the mask forward or backward   
+        shift_by = int((2*np.random.rand()-1)*xc.shape[-1]) if start_loc is None else start_loc
+        mask_view = torch.roll(self.mask, shift_by, -1)   # move the mask around (as a view of original mask tensor)
+        return xc * mask_view # this does the excising, not in place (so xc stays unchanged)
+
+    def forward(self, x):
+        if self.mask is None:  # setup the mask if it hasn't been setup already
+            if isinstance(self.mask_width, float):  # convert it from a fraction to an integer number of samples
+                self.mask_width = int(x.shape[-1] * self.mask_width_frac)
+            self.make_single_mask(x)
+            self.n_masks =  int(self.mask_frac * x.shape[-1]/self.mask_width)  # number of mask regions to add per channel. we will not worry about whether masks end up overlapping or not
+            if self.verbose: print("self.mask_width, self.n_masks = ",self.mask_width, self.n_masks)
+
+        out = x.clone()  # make a copy so that we don't overwrite x
+        assert len(x.shape) >= 3, f"Expected x to have 3 or more dimensions but x.shape = {x.shape}" # x.shape should be [b,c,n_samples]
+        for bi in range(x.shape[0]):  # TODO: gotta be a way to do this all at once instead of 3 loops! 
+            for c in range(x.shape[1]):  
+                for i in range(self.n_masks):
+                    out[bi,c,:] = self.mask_once_1channel(out[bi,c,:]) # this operation is in place
+        return out
+
+
+# %% ../01_datasets.ipynb 30
 def get_s3_contents(
     dataset_path,     # "name" of the dataset on s3
     s3_url_prefix='s3://s-laion-audio/webdataset_tar/',  # s3 bucket to check
@@ -165,7 +244,7 @@ def get_s3_contents(
         if debug: print("contents = ",contents)
     return [x for x in contents if filter in x] # return filtered list
 
-# %% ../01_datasets.ipynb 29
+# %% ../01_datasets.ipynb 41
 def get_contiguous_range(
     tar_names, # list of tar file names, although the .tar part is actually optional
     ):
@@ -182,7 +261,7 @@ def get_contiguous_range(
         print("get_contiguous_range: File numbers not continuous")  # have to do more work
         return '' # empty string will signify no dice; signal for more work to be done
 
-# %% ../01_datasets.ipynb 47
+# %% ../01_datasets.ipynb 59
 def fix_double_slashes(s, debug=False):
     "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
     cdsh_split = s.split('://')
@@ -195,7 +274,7 @@ def fix_double_slashes(s, debug=False):
     else:
         return post
 
-# %% ../01_datasets.ipynb 51
+# %% ../01_datasets.ipynb 63
 def get_all_s3_urls(
     names=['FSD50K'],    # list of all valid [LAION AudioDataset] dataset names 
     subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
@@ -226,7 +305,7 @@ def get_all_s3_urls(
     #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
     return urls
 
-# %% ../01_datasets.ipynb 55
+# %% ../01_datasets.ipynb 67
 class AudioDataset(torch.utils.data.Dataset):
     """
     Reads from a tree of directories and serves up cropped bits from any and all audio files
@@ -328,7 +407,7 @@ class AudioDataset(torch.utils.data.Dataset):
                
         return self[random.randrange(len(self))] if (audio is None) else audio
 
-# %% ../01_datasets.ipynb 58
+# %% ../01_datasets.ipynb 70
 class IterableAudioDataset(torch.utils.data.IterableDataset):
     "Iterable version of AudioDataset, used with Chain (below)"
     def __init__(self, 
@@ -355,7 +434,7 @@ class IterableAudioDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         yield self.this.__getitem__(random.randint(0, self.len))
 
-# %% ../01_datasets.ipynb 61
+# %% ../01_datasets.ipynb 73
 class HybridAudioDataset(torch.utils.data.IterableDataset):
     "Combines AudioDataset and WebDataset"
     def __init__(self, 
@@ -428,7 +507,7 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
 
         yield audio
 
-# %% ../01_datasets.ipynb 68
+# %% ../01_datasets.ipynb 80
 def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     "utility routine for QuickWebDataLoader, below"
     audio_keys = ("flac", "wav", "mp3", "aiff")
@@ -458,7 +537,7 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     sample[rewrite_key] = audio    
     return sample
 
-# %% ../01_datasets.ipynb 69
+# %% ../01_datasets.ipynb 81
 def QuickWebDataLoader(
     names=['ekto/1'], # names of datasets. will search laion, harmonai & IA s3 buckets for these
     sample_size=65536, # how long each sample to grab via PadCrop
