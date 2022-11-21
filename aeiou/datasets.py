@@ -179,13 +179,13 @@ class RandMask1D(nn.Module):
 
     def make_single_mask(self, x, min_val=0):
         "allocate a 1D group of min_vals (zeros) amidst a bunch of 1's. Put the zeros/min_vals values in the middle"
-        self.mask = torch.ones(x.shape[-1])
         start = max(0, (x.shape[-1] - self.mask_width)//2 ) 
         end =   min(start + self.mask_width, x.shape[-1])   # don't go over the edge
         if self.mask_type == 'simple': 
+            self.mask = torch.ones(x.shape[-1]).to(x.device)
             self.mask[start:end] = min_val                  
         elif self.mask_type == 'smoothstep':       
-            coords = torch.linspace(0,1, steps=x.shape[-1])  
+            coords = torch.linspace(0,1, steps=x.shape[-1]).to(x.device)
             ew = self.edge_width if isinstance(self.edge_width,int) else int((end-start)*self.edge_width) # edge width in samples
             self.mask = smoothstep_box(coords, edges=[coords[i] for i in [start, start+ew, end-ew, end]])
         else:
@@ -199,7 +199,7 @@ class RandMask1D(nn.Module):
         "excises one mask region for one channel (hence '_1c') in one batch"
         # shift the mask forward or backward   
         shift_by = int((2*np.random.rand()-1)*xc.shape[-1]) if start_loc is None else start_loc
-        mask_view = torch.roll(self.mask, shift_by, -1)   # move the mask around (as a view of original mask tensor)
+        mask_view = torch.roll(self.mask, shift_by, -1).to(xc.device)   # move the mask around (as a view of original mask tensor)
         return xc * mask_view # this does the excising, not in place (so xc stays unchanged)
 
     def forward(self, x):
@@ -210,7 +210,7 @@ class RandMask1D(nn.Module):
             self.n_masks =  int(self.mask_frac * x.shape[-1]/self.mask_width)  # number of mask regions to add per channel. we will not worry about whether masks end up overlapping or not
             if self.verbose: print("self.mask_width, self.n_masks = ",self.mask_width, self.n_masks)
 
-        out = x.clone()  # make a copy so that we don't overwrite x
+        out = x.clone().to(x.device)  # make a copy so that we don't overwrite x
         assert len(x.shape) >= 3, f"Expected x to have 3 or more dimensions but x.shape = {x.shape}" # x.shape should be [b,c,n_samples]
         for bi in range(x.shape[0]):  # TODO: gotta be a way to do this all at once instead of 3 loops! 
             for c in range(x.shape[1]):  
