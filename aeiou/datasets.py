@@ -170,26 +170,29 @@ class RandMask1D(nn.Module):
         mask_width=0.1,        # either a fraction of the total length (float < 1) or an exact integer value for length of each masked region
         mask_type='simple',    # 'simple'=hard sides to cuts, 'softstep'=smooth sides
         edge_width=0.2,        # for mask_type=smoothstep, fraction or integer value of transition regions to come in from the sides of zeros region
+        per_channel=False,      # different masks on different channels; model can cheat if your inputs are mono
         verbose = False,       # show logging info
         ):
         super().__init__()
         if mask_width < 1: self.mask_width_frac = mask_width   # if float is given, set fraction of chunk length for each mask
         self.mask_frac,  self.mask_width, self.mask_type, self.edge_width, self.verbose = mask_frac, mask_width, mask_type, edge_width, verbose
+        self.per_channel = per_channel
         self.mask = None       # mask is only setup (once and for all) when forward() is called
 
     def make_single_mask(self, x, min_val=0):
         "allocate a 1D group of min_vals (zeros) amidst a bunch of 1's. Put the zeros/min_vals values in the middle"
         start = max(0, (x.shape[-1] - self.mask_width)//2 ) 
         end =   min(start + self.mask_width, x.shape[-1])   # don't go over the edge
-        if self.mask_type == 'simple': 
-            self.mask = torch.ones(x.shape[-1]).to(x.device)
-            self.mask[start:end] = min_val                  
-        elif self.mask_type == 'smoothstep':       
-            coords = torch.linspace(0,1, steps=x.shape[-1]).to(x.device)
-            ew = self.edge_width if isinstance(self.edge_width,int) else int((end-start)*self.edge_width) # edge width in samples
-            self.mask = smoothstep_box(coords, edges=[coords[i] for i in [start, start+ew, end-ew, end]])
-        else:
-            assert False, f"Error: Unsupported mask type: '{self.mask_type}'"
+        with torch.no_grad():
+            if self.mask_type == 'simple': 
+                self.mask = torch.ones(x.shape[-1]).to(x.device)
+                self.mask[start:end] = min_val                  
+            elif self.mask_type == 'smoothstep':       
+                coords = torch.linspace(0,1, steps=x.shape[-1]).to(x.device)
+                ew = self.edge_width if isinstance(self.edge_width,int) else int((end-start)*self.edge_width) # edge width in samples
+                self.mask = smoothstep_box(coords, edges=[coords[i] for i in [start, start+ew, end-ew, end]])
+            else:
+                assert False, f"Error: Unsupported mask type: '{self.mask_type}'"
 
     def mask_once_1channel(self, 
         xc,            # one channel of x
@@ -199,7 +202,8 @@ class RandMask1D(nn.Module):
         "excises one mask region for one channel (hence '_1c') in one batch"
         # shift the mask forward or backward   
         shift_by = int((2*np.random.rand()-1)*xc.shape[-1]) if start_loc is None else start_loc
-        mask_view = torch.roll(self.mask, shift_by, -1).to(xc.device)   # move the mask around (as a view of original mask tensor)
+        with torch.no_grad():
+            mask_view = torch.roll(self.mask, shift_by, -1).to(xc.device)   # move the mask around (as a view of original mask tensor)
         return xc * mask_view # this does the excising, not in place (so xc stays unchanged)
 
     def forward(self, x):
@@ -208,16 +212,22 @@ class RandMask1D(nn.Module):
                 self.mask_width = int(x.shape[-1] * self.mask_width_frac)
             self.make_single_mask(x)
             self.n_masks =  int(self.mask_frac * x.shape[-1]/self.mask_width)  # number of mask regions to add per channel. we will not worry about whether masks end up overlapping or not
-            if self.verbose: print("self.mask_width, self.n_masks = ",self.mask_width, self.n_masks)
+            if self.verbose: print("\n MMMM-  RandMask1D: Mask engaged!  self.mask_width, self.n_masks = ",self.mask_width, self.n_masks,"\n")
 
+        
         out = x.clone().to(x.device)  # make a copy so that we don't overwrite x
-        assert len(x.shape) >= 3, f"Expected x to have 3 or more dimensions but x.shape = {x.shape}" # x.shape should be [b,c,n_samples]
-        for bi in range(x.shape[0]):  # TODO: gotta be a way to do this all at once instead of 3 loops! 
-            for c in range(x.shape[1]):  
+        while len(out.shape) < 3:     # add batch dim and channel dim for loop below if needed
+            out = out.unsqueeze(0)
+        assert len(out.shape) >= 3, f"Expected x to have 3 or more dimensions but x.shape = {x.shape}" # x.shape should be [b,c,n_samples]
+        for bi in range(out.shape[0]):  # TODO: gotta be a way to do this all at once instead of 3 loops! 
+            if self.per_channel:
+                for c in range(out.shape[1]):  
+                    for i in range(self.n_masks):
+                        out[bi,c,:] = self.mask_once_1channel(out[bi,c,:]) 
+            else:           # mask all channels at once. keeps model from cheating when mono has been doubled to L&R
                 for i in range(self.n_masks):
-                    out[bi,c,:] = self.mask_once_1channel(out[bi,c,:]) # this operation is in place
-        return out
-
+                    out[bi,:,:] = self.mask_once_1channel(out[bi,:,:])  
+        return torch.reshape(out, x.shape)
 
 # %% ../01_datasets.ipynb 30
 def get_s3_contents(
