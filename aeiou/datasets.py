@@ -74,7 +74,8 @@ class PadCrop(nn.Module):
         end = start + self.n_samples
         chunk = signal.new_zeros([n, self.n_samples])
         chunk[:, :min(s, self.n_samples)] = signal[:, start:end]
-        return chunk, [start,end]
+        crop_range = torch.tensor([start,end],dtype=int).to(signal.device) # making this a tensor helps preserve order in DataLoader 
+        return chunk, crop_range
     
     def __call__(self, x):
         "when part of the pipline, this will grab a padded/cropped chunk from signal"
@@ -86,12 +87,13 @@ class PadCrop(nn.Module):
             num_redraws = num_redraws+1
         if not isinstance(x, dict):  # multiple values, not handled by pipeline_return
             return chunk
-        else: 
-            x['uncropped'] = x['inputs'] # save a copy (of the pointer) in case we want to quickly re-crop the same audio file
+        else:
+            ##SHH: don't save original as x['uncropped'] unless all input files have the same length, otherwise torch.utils.data.DataLoader will complain about collating different lengths
+            ##x['uncropped'] = x['inputs'] # save a copy (of the pointer) in case we want to quickly re-crop the same audio file
             x['inputs'], x['crop_range'] = chunk, crop_range  # crop_range reports where chunk was taken from
             return x 
 
-# %% ../01_datasets.ipynb 17
+# %% ../01_datasets.ipynb 19
 class PhaseFlipper(nn.Module):
     "she was PHAAAAAAA-AAAASE FLIPPER, a random invert yeah"
     def __init__(self, 
@@ -104,7 +106,7 @@ class PhaseFlipper(nn.Module):
         out =  -signal if (random.random() < self.p) else signal
         return pipeline_return(out, x)
 
-# %% ../01_datasets.ipynb 18
+# %% ../01_datasets.ipynb 20
 class FillTheNoise(nn.Module):
     "randomly adds a bit of noise, or not, just to spice things up"
     def __init__(self, 
@@ -117,7 +119,7 @@ class FillTheNoise(nn.Module):
         out = signal + 0.25*random.random()*(2*torch.rand_like(signal)-1) if (random.random() < self.p) else signal
         return pipeline_return(out, x)
 
-# %% ../01_datasets.ipynb 19
+# %% ../01_datasets.ipynb 21
 class RandPool(nn.Module):
     "maybe (or maybe not) do an avgpool operation, with a random-sized kernel "
     def __init__(self, p=0.2):
@@ -131,7 +133,7 @@ class RandPool(nn.Module):
         else:            
             return x   # do nothing
 
-# %% ../01_datasets.ipynb 20
+# %% ../01_datasets.ipynb 22
 class NormInputs(nn.Module):
     "Normalize inputs to [-1,1]. Useful for quiet inputs"
     def __init__(self, 
@@ -145,7 +147,7 @@ class NormInputs(nn.Module):
         out =  signal if (not self.do_norm) else signal/(torch.amax(signal,-1)[0] + self.eps)
         return pipeline_return(out, x)
 
-# %% ../01_datasets.ipynb 21
+# %% ../01_datasets.ipynb 23
 class Mono(nn.Module):
     "convert audio to mono"
     def __call__(self, x):
@@ -153,7 +155,7 @@ class Mono(nn.Module):
         out = torch.mean(signal, dim=0) if len(signal.shape) > 1 else signal
         return pipeline_return(out, x)
 
-# %% ../01_datasets.ipynb 22
+# %% ../01_datasets.ipynb 24
 class Stereo(nn.Module):
     "convert audio to stereo"
     def __call__(self, x):
@@ -168,7 +170,7 @@ class Stereo(nn.Module):
                 signal = signal[:2, :]         # grab only first two channels
         return pipeline_return(signal, x)
 
-# %% ../01_datasets.ipynb 24
+# %% ../01_datasets.ipynb 26
 def smoothstep(x, # a tensor of coordinates across a domain, e.g. [0,1]
     edge0=0.4, # "zero"/"left" side of smoothstep
     edge1=0.6, # "one"/"right" side of smoothstep
@@ -179,7 +181,7 @@ def smoothstep(x, # a tensor of coordinates across a domain, e.g. [0,1]
     x = torch.where( torch.logical_and(x >= edge0, x <= edge1) , (x - edge0) / (edge1 - edge0), x )
     return x * x * (3 - 2 * x)
 
-# %% ../01_datasets.ipynb 25
+# %% ../01_datasets.ipynb 27
 def smoothstep_box(
     coords, # tensor of coordinate values
     edges = (0.2,0.3,0.5,0.6) # (left 1's boundary, left 0's boundary, right 0's boundary, right 1's boundary)
@@ -190,7 +192,7 @@ def smoothstep_box(
     left = 1 - smoothstep(coords, edge0=edges[0], edge1=edges[1])
     return left + right
 
-# %% ../01_datasets.ipynb 30
+# %% ../01_datasets.ipynb 32
 class RandMask1D(nn.Module):
     "Performs masking or 'cutout' along 1d data. Can support 'smooth sides' to the cutouts"
     def __init__(self, 
@@ -263,7 +265,7 @@ class RandMask1D(nn.Module):
             x['inputs'] = out
             return x 
 
-# %% ../01_datasets.ipynb 38
+# %% ../01_datasets.ipynb 40
 class AudioDataset(torch.utils.data.Dataset):
     """
     Reads from a tree of directories and serves up cropped bits from any and all audio files
@@ -334,18 +336,18 @@ class AudioDataset(torch.utils.data.Dataset):
     
     
     def get_next_chunk(self, 
-        idx     # the index of the file within the list of files
+        idx,     # the index of the file within the list of files
         ):
-        "The heart of this whole dataset routine"
+        "The heart of this whole dataset routine: Loads file, crops & runs other augmentations"
         audio_filename = self.filenames[idx]
         try:
             if self.cache_training_data:
                 audio = self.audio_files[idx] # .copy()
             else:
                 audio = load_audio(audio_filename, sr=self.sr, verbose=self.verbose)
-            x = {'inputs':audio} if self.return_dict else audio  # x is either audio or dict
-            x = self.augs(x)
-            if self.return_dict:
+            x = {'filename':audio_filename, 'inputs':audio} if self.return_dict else audio  # x is either audio or dict
+            x = self.augs(x)      # RUN AUGMENTATION PIPELINE
+            if isinstance(x, dict):
                 x['inputs'] = x['inputs'].clamp(-1, 1)
             else:
                 x = x.clamp(-1, 1)
@@ -359,6 +361,7 @@ class AudioDataset(torch.utils.data.Dataset):
     def __getitem__(self, 
         idx     # the index of the file within the list of files
         ):
+        "__getitem__ is expected to return (inputs, labels)"
         x = self.get_next_chunk(idx)  # x is either audio or a dict, depending on self.return_dict
         audio = x if not isinstance(x, dict) else x['inputs']
         
@@ -366,14 +369,14 @@ class AudioDataset(torch.utils.data.Dataset):
         num_redraws = 0 
         while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
             and (num_redraws < self.max_redraws)):
-            #print(f"AudioDataset.__getitem__: Got None or silence (torch.max = {torch.max(audio)})  Redrawing. Attempt {num_redraws+1} of {self.max_redraws}")
             next_idx = random.randint(0,len(self.filenames)-1)     # pick some other file at random
             x, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
             audio = x if not isinstance(x, dict) else x['inputs']
-               
+    
+        if self.verbose: print("__getitem__: x =",x)
         return self[random.randrange(len(self))] if (x is None) else x
 
-# %% ../01_datasets.ipynb 46
+# %% ../01_datasets.ipynb 54
 def get_s3_contents(
     dataset_path,     # "name" of the dataset on s3
     s3_url_prefix='s3://s-laion-audio/webdataset_tar/',  # s3 bucket to check
@@ -402,7 +405,7 @@ def get_s3_contents(
         if debug: print("contents = ",contents)
     return [x for x in contents if filter in x] # return filtered list
 
-# %% ../01_datasets.ipynb 57
+# %% ../01_datasets.ipynb 65
 def get_contiguous_range(
     tar_names, # list of tar file names, although the .tar part is actually optional
     ):
@@ -419,7 +422,7 @@ def get_contiguous_range(
         print("get_contiguous_range: File numbers not continuous")  # have to do more work
         return '' # empty string will signify no dice; signal for more work to be done
 
-# %% ../01_datasets.ipynb 75
+# %% ../01_datasets.ipynb 83
 def fix_double_slashes(s, debug=False):
     "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
     cdsh_split = s.split('://')
@@ -432,7 +435,7 @@ def fix_double_slashes(s, debug=False):
     else:
         return post
 
-# %% ../01_datasets.ipynb 79
+# %% ../01_datasets.ipynb 87
 def get_all_s3_urls(
     names=['FSD50K'],    # list of all valid [LAION AudioDataset] dataset names 
     subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
@@ -463,7 +466,7 @@ def get_all_s3_urls(
     #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
     return urls
 
-# %% ../01_datasets.ipynb 82
+# %% ../01_datasets.ipynb 90
 class IterableAudioDataset(torch.utils.data.IterableDataset):
     "Iterable version of AudioDataset, used with Chain (below)"
     def __init__(self, 
@@ -490,7 +493,7 @@ class IterableAudioDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         yield self.this.__getitem__(random.randint(0, self.len))
 
-# %% ../01_datasets.ipynb 85
+# %% ../01_datasets.ipynb 93
 class HybridAudioDataset(torch.utils.data.IterableDataset):
     "Combines AudioDataset and WebDataset"
     def __init__(self, 
@@ -563,7 +566,7 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
 
         yield audio
 
-# %% ../01_datasets.ipynb 92
+# %% ../01_datasets.ipynb 100
 def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     "utility routine for QuickWebDataLoader, below"
     audio_keys = ("flac", "wav", "mp3", "aiff")
@@ -593,7 +596,7 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     sample[rewrite_key] = audio    
     return sample
 
-# %% ../01_datasets.ipynb 93
+# %% ../01_datasets.ipynb 101
 def QuickWebDataLoader(
     names=['ekto/1'], # names of datasets. will search laion, harmonai & IA s3 buckets for these
     sample_size=65536, # how long each sample to grab via PadCrop
