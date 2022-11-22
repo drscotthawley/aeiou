@@ -361,7 +361,7 @@ class AudioDataset(torch.utils.data.Dataset):
     def __getitem__(self, 
         idx     # the index of the file within the list of files
         ):
-        "__getitem__ is expected to return (inputs, labels)"
+        "returns either audio tensor or a dict with lots of info"
         x = self.get_next_chunk(idx)  # x is either audio or a dict, depending on self.return_dict
         audio = x if not isinstance(x, dict) else x['inputs']
         
