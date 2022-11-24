@@ -44,7 +44,10 @@ def pipeline_return(
 # %% ../01_datasets.ipynb 9
 class RandomGain(nn.Module):
     "apply a random gain to audio"
-    def __init__(self, min_gain, max_gain):
+    def __init__(self, 
+        min_gain,    # minimum gain to apply
+        max_gain,    # maximum gain to apply
+        ):
         super().__init__()
         self.min_gain = min_gain
         self.max_gain = max_gain
@@ -57,6 +60,7 @@ class RandomGain(nn.Module):
 
 # %% ../01_datasets.ipynb 14
 class PadCrop(nn.Module):
+    "Grabs a randomly-located section from an audio file, padding with zeros in case of any misalignment"
     def __init__(self, 
         n_samples,           # length of chunk to extract from longer signal
         randomize=True,      # draw cropped chunk from a random position in audio file
