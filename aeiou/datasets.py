@@ -20,6 +20,7 @@ from fastcore.utils import *
 import webdataset as wds
 import subprocess
 import re
+import pedalboard
 
 # %% auto 0
 __all__ = ['pipeline_return', 'RandomGain', 'PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo',
@@ -411,7 +412,7 @@ def get_s3_contents(
         if debug: print("contents = ",contents)
     return [x for x in contents if filter in x] # return filtered list
 
-# %% ../01_datasets.ipynb 67
+# %% ../01_datasets.ipynb 65
 def get_contiguous_range(
     tar_names, # list of tar file names, although the .tar part is actually optional
     ):
@@ -428,7 +429,7 @@ def get_contiguous_range(
         print("get_contiguous_range: File numbers not continuous")  # have to do more work
         return '' # empty string will signify no dice; signal for more work to be done
 
-# %% ../01_datasets.ipynb 85
+# %% ../01_datasets.ipynb 81
 def fix_double_slashes(s, debug=False):
     "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
     cdsh_split = s.split('://')
@@ -441,11 +442,11 @@ def fix_double_slashes(s, debug=False):
     else:
         return post
 
-# %% ../01_datasets.ipynb 89
+# %% ../01_datasets.ipynb 85
 def get_all_s3_urls(
     names=['FSD50K'],    # list of all valid [LAION AudioDataset] dataset names 
     subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
-    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those
+    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those dataset names
     recursive=True,  # recursively list all tar files in all subdirs
     filter_str='tar', # only grab files with this substring
     debug=False,     # print debugging info -- note: info displayed likely to change at dev's whims
@@ -472,7 +473,7 @@ def get_all_s3_urls(
     #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
     return urls
 
-# %% ../01_datasets.ipynb 92
+# %% ../01_datasets.ipynb 87
 class IterableAudioDataset(torch.utils.data.IterableDataset):
     "Iterable version of AudioDataset, used with Chain (below)"
     def __init__(self, 
@@ -499,7 +500,7 @@ class IterableAudioDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         yield self.this.__getitem__(random.randint(0, self.len))
 
-# %% ../01_datasets.ipynb 95
+# %% ../01_datasets.ipynb 90
 class HybridAudioDataset(torch.utils.data.IterableDataset):
     "Combines AudioDataset and WebDataset"
     def __init__(self, 
@@ -517,9 +518,7 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
         augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
         verbose=False,      # whether to print notices of reasampling or not
         subsets=[],         # can specify, e.g. ['train','valid'] to exclude 'test'. default= grab everything!
-        s3_url_prefixes=['s3://s-laion-audio/webdataset_tar/',
-                         's3://iarchive-stability/',
-                         's3://s-harmonai/datasets/'], # where to look on s3 for things
+        s3_url_prefixes=['s3://s-laion-audio/webdataset_tar/'], # where to look on s3 for things
         recursive=True,     # grab all tar files ("shards") recursively
         debug=False,        # print debugging info
         ):
@@ -572,7 +571,7 @@ class HybridAudioDataset(torch.utils.data.IterableDataset):
 
         yield audio
 
-# %% ../01_datasets.ipynb 102
+# %% ../01_datasets.ipynb 94
 def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     "utility routine for QuickWebDataLoader, below"
     audio_keys = ("flac", "wav", "mp3", "aiff")
@@ -602,9 +601,9 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     sample[rewrite_key] = audio    
     return sample
 
-# %% ../01_datasets.ipynb 103
+# %% ../01_datasets.ipynb 95
 def QuickWebDataLoader(
-    names=['ekto/1'], # names of datasets. will search laion, harmonai & IA s3 buckets for these
+    names=['FSD50K'], # names of datasets. will search all available s3 urls
     sample_size=65536, # how long each sample to grab via PadCrop
     sample_rate=48000, # standard sr in Hz
     num_workers=4,    # in the PyTorch DataLoader sense
@@ -618,18 +617,22 @@ def QuickWebDataLoader(
     **kwargs,          # what else to pass to callback
     ):
     "Minimal/quick implementation: Sets up a WebDataLoader with some typical defaults"
-    print("Note: 'Broken pipe' messages you might get aren't a big deal, but may indicate files that are too big.")
+    if verbose:print("Note: 'Broken pipe' messages you might get aren't a big deal, but may indicate files that are too big.")
     if names is not list: names = [names]
     urls = get_all_s3_urls(names=names, recursive=True, debug=debug) 
     if debug: print("urls =\n",urls)
-    dataset = wds.DataPipeline(
-        wds.ResampledShards(urls),
-        wds.tarfile_to_samples(),
-        wds.shuffle(shuffle_vals[0]),
-        wds.decode(wds.torch_audio),
-        wds.map(partial(callback, sample_size=sample_size, sample_rate=sample_rate, verbose=verbose, **kwargs)),
-        wds.shuffle(shuffle_vals[1]),
-        wds.to_tuple(audio_file_ext),
-        wds.batched(batch_size)
-    ).with_epoch(epoch_len)
-    return wds.WebLoader(dataset, num_workers=num_workers)
+    if len(urls) > 0:
+        dataset = wds.DataPipeline(
+            wds.ResampledShards(urls),
+            wds.tarfile_to_samples(),
+            wds.shuffle(shuffle_vals[0]),
+            wds.decode(wds.torch_audio),
+            wds.map(partial(callback, sample_size=sample_size, sample_rate=sample_rate, verbose=verbose, **kwargs)),
+            wds.shuffle(shuffle_vals[1]),
+            wds.to_tuple(audio_file_ext),
+            wds.batched(batch_size)
+        ).with_epoch(epoch_len)
+        return wds.WebLoader(dataset, num_workers=num_workers)
+    else:
+        print("QuickWebDataLoader: No URLs found. Returning 'None'")
+        return None
