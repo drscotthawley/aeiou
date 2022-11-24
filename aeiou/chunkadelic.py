@@ -12,7 +12,6 @@ import torch
 import torchaudio
 import math
 from .core import is_silence, load_audio, makedir, get_audio_filenames, normalize_audio, get_dbmax
-from .chunk_one_file import chunk_one_file
 import multiprocessing as mp
 from multiprocessing import Pool, cpu_count, Barrier
 
