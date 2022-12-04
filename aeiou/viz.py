@@ -177,7 +177,15 @@ def mel_spectrogram(waveform, power=2.0, sample_rate=48000, db=False, n_fft=1024
     return melspec
 
 # %% ../02_viz.ipynb 22
-def spectrogram_image(spec, title=None, ylabel='freq_bin', aspect='auto', xmax=None, db_range=[35,120], justimage=False):
+def spectrogram_image(
+        spec, 
+        title=None, 
+        ylabel='freq_bin', 
+        aspect='auto', 
+        xmax=None, 
+        db_range=[35,120], 
+        justimage=False,
+    ):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
     canvas = FigureCanvasAgg(fig)
@@ -210,7 +218,7 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 29
+# %% ../02_viz.ipynb 27
 # Original code by Scott Condron (@scottire) of Weights and Biases, edited by @drscotthawley
 # cf. @scottire's original code here: https://gist.github.com/scottire/a8e5b74efca37945c0f1b0670761d568
 # and Morgan McGuire's edit here; https://github.com/morganmcg1/wandb_spectrogram
@@ -348,18 +356,33 @@ def playable_spectrogram(
     combined = combined.save(html_file_name)
     return wandb.Html(html_file_name) if output_type=='wandb' else html_file_name
 
-# %% ../02_viz.ipynb 36
-def tokens_spectrogram_image(tokens, aspect='auto', title='Embeddings', ylabel='index'):
+# %% ../02_viz.ipynb 34
+def tokens_spectrogram_image(
+        tokens,                # the embeddings themselves (in some diffusion codes these are called 'tokens')
+        aspect='auto',         # aspect ratio of plot
+        title='Embeddings',    # title to put on top
+        ylabel='index',        # label for y axis of plot
+        cmap='coolwarm',       # colormap to use. (default used to be 'viridis')
+        symmetric=True,        # make color scale symmetric about zero, i.e. +/- same extremes
+    ):
     "for visualizing embeddings in a spectrogram-like way"
-    embeddings = rearrange(tokens, 'b d n -> (b n) d') 
-    #print(f"tokens_spectrogram_image: embeddings.shape = ",embeddings.shape)
+    embeddings = rearrange(tokens, 'b d n -> (b n) d')
+    vmin, vmax = None, None
+    if symmetric:
+        vmax = torch.abs(embeddings).max()
+        vmin = -vmax
     fig = Figure(figsize=(10, 4), dpi=100)
     canvas = FigureCanvasAgg(fig)
     axs = fig.add_subplot()
-    axs.set_title(title or 'Embeddings')
+    if symmetric: 
+        subtitle = f'min={embeddings.min():0.4g}, max={embeddings.max():0.4g}'
+        axs.set_title(title+'\n')
+        axs.text(x=0.435, y=0.9, s=subtitle, fontsize=11, ha="center", transform=fig.transFigure)
+    else:
+        axs.set_title(title)
     axs.set_ylabel(ylabel)
     axs.set_xlabel('time frame')
-    im = axs.imshow(embeddings.cpu().numpy().T, origin='lower', aspect=aspect, interpolation='none') #.T because numpy is x/y 'backwards'
+    im = axs.imshow(embeddings.cpu().numpy().T, origin='lower', aspect=aspect, interpolation='none', cmap=cmap, vmin=vmin,vmax=vmax) #.T because numpy is x/y 'backwards'
     fig.colorbar(im, ax=axs)
     canvas.draw()
     rgba = np.asarray(canvas.buffer_rgba())
