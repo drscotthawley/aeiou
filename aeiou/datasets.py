@@ -394,18 +394,21 @@ def get_s3_contents(
     filter='',       # only grab certain filename / extensions
     recursive=True,  # check all subdirectories. RECOMMEND LEAVING THIS TRUE
     debug=False,     # print debugging info (don't rely on this info staying consistent)
+    profile='default',      # name of the AWS profile credentials
     ):
     "Gets a list of names of files or subdirectories on an s3 path"
     if (dataset_path != '') and (not dataset_path.endswith('/')): 
         dataset_path = dataset_path + '/'
     dataset_path = dataset_path.replace('//','/') # aws is baffled by double slashes in dir names
     if not recursive:
-        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}'], capture_output=True)
+        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}','--profile',profile], capture_output=True)
     else:
-        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}','--recursive'], capture_output=True)
+        run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}','--recursive', '--profile',profile], capture_output=True)
         run_ls = subprocess.run(["awk",'{$1=$2=$3=""; print $0}'], input=run_ls.stdout, capture_output=True)
         run_ls = subprocess.run(["sed",'s/^[ \t]*//'], input=run_ls.stdout, capture_output=True)
-    contents = run_ls.stdout.decode('utf-8').split('\n') 
+    contents = run_ls.stdout.decode('utf-8')
+    if debug: print("contents = \n",contents)
+    contents = contents.split('\n') 
     contents = [x.strip() for x in contents if x]      # list of non-empty strings, without leading whitespace
     contents = [x.replace('PRE ','') if (x[-1]=='/') else x for x in contents]  # directories
     #contents = [''.join(x.split(' ')[4:]) if (x[-1]!='/') else x for x in contents]    # files
@@ -448,12 +451,13 @@ def fix_double_slashes(s, debug=False):
 
 # %% ../01_datasets.ipynb 85
 def get_all_s3_urls(
-    names=['FSD50K'],    # list of all valid [LAION AudioDataset] dataset names 
+    names=[],    # list of all valid [LAION AudioDataset] dataset names 
     subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
     s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those dataset names
     recursive=True,  # recursively list all tar files in all subdirs
     filter_str='tar', # only grab files with this substring
     debug=False,     # print debugging info -- note: info displayed likely to change at dev's whims
+    profile='default',     # name of S3 profile to use (''=None)
     ): 
     "get urls of shards (tar files) for multiple datasets in one s3 bucket"
     if s3_url_prefix[-1] != '/':  s3_url_prefix = s3_url_prefix + '/'
@@ -465,13 +469,14 @@ def get_all_s3_urls(
         for subset in subsets:
             contents_str = fix_double_slashes(f'{name}/{subset}/')
             if debug: print("contents_str =",contents_str)
-            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_url_prefix, recursive=recursive, filter=filter_str, debug=debug)
+            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_url_prefix, recursive=recursive, filter=filter_str, debug=debug, profile=profile)
             for tar in tar_list:
                 tar = tar.replace(" ","\ ").replace("(","\(").replace(")","\)") # escape spaces and parentheses for shell
                 s3_path  = f"{name}/{subset}/{tar} -"
                 while '//' in s3_path:  # aws hates double-slashes
                     s3_path = s3_path.replace('//','/')
                 request_str = f"pipe:aws s3 --cli-connect-timeout 0 cp {s3_url_prefix}{s3_path}" 
+                if profile != '': request_str += f" --profile {profile}"
                 if debug: print("request_str = ",request_str)
                 urls.append(fix_double_slashes(request_str))
     #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
