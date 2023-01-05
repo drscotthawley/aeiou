@@ -185,9 +185,10 @@ def spectrogram_image(
         xmax=None, 
         db_range=[35,120], 
         justimage=False,
+        figsize=(5, 4), # size of plot (if justimage==False)
     ):
     "Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
-    fig = Figure(figsize=(5, 4), dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
+    fig = Figure(figsize=figsize, dpi=100) if not justimage else Figure(figsize=(4.145, 4.145), dpi=100, tight_layout=True)
     canvas = FigureCanvasAgg(fig)
     axs = fig.add_subplot()
     spec = spec.squeeze()
@@ -226,30 +227,30 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
 
 # helper routine; a bit redundant given what else is in this repo
 def generate_melspec(audio_data, sample_rate=48000, power=2.0, n_fft = 1024, win_length = None, hop_length = None, n_mels = 128):
-  "helper routine for playable_spectrogram"
-  if hop_length is None:
-     hop_length = n_fft//2
+    "helper routine for playable_spectrogram"
+    if hop_length is None:
+         hop_length = n_fft//2
 
-  # convert to torch
-  audio_data = torch.tensor(audio_data, dtype=torch.float32)
+    # convert to torch
+    audio_data = torch.tensor(audio_data, dtype=torch.float32)
 
-  mel_spectrogram_op = T.MelSpectrogram(
-      sample_rate=sample_rate,
-      n_fft=n_fft,
-      win_length=win_length,
-      hop_length=hop_length,
-      center=True,
-      pad_mode="reflect",
-      power=power,
-      norm="slaney",
-      onesided=True,
-      n_mels=n_mels,
-      mel_scale="htk",
-  )
+    mel_spectrogram_op = T.MelSpectrogram(
+        sample_rate=sample_rate,
+        n_fft=n_fft,
+        win_length=win_length,
+        hop_length=hop_length,
+        center=True,
+        pad_mode="reflect",
+        power=power,
+        norm="slaney",
+        onesided=True,
+        n_mels=n_mels,
+        mel_scale="htk",
+    )
 
-  melspec = mel_spectrogram_op(audio_data).numpy()
-  mel_db = np.flipud(librosa.power_to_db(melspec))
-  return mel_db
+    melspec = mel_spectrogram_op(audio_data).numpy()
+    mel_db = np.flipud(librosa.power_to_db(melspec))
+    return mel_db
 
 
 # the main routine
@@ -316,7 +317,7 @@ def playable_spectrogram(
     else: 
         spec_gram_hv = None
 
-  # Melspectogram plot
+    # Melspectogram plot
     if specs in ['melspec','all_specs','all','wave_mel']:
         mel_db = generate_melspec(mono_audio, sample_rate=sample_rate, power=2.0, n_fft = 1024, n_mels = 100)
         melspec_gram_hv = hv.Image(mel_db, ["Time (s)", "Mel Freq"], bounds=(0, 0, duration, mel_db.max()), ).opts(
@@ -326,7 +327,7 @@ def playable_spectrogram(
     else:
         melspec_gram_hv = None
 
-  # Waveform plot (multichannel as colors atop one another)
+    # Waveform plot (multichannel as colors atop one another)
     if specs in ['waveform','all','wave_mel']:
         time = np.linspace(0, len(mono_audio)/sample_rate, num=len(mono_audio))
         overlay_curves = []
@@ -356,7 +357,8 @@ def playable_spectrogram(
     combined = combined.save(html_file_name)
     return wandb.Html(html_file_name) if output_type=='wandb' else html_file_name
 
-# %% ../02_viz.ipynb 34
+# %% ../02_viz.ipynb 31
+from matplotlib.ticker import AutoLocator 
 def tokens_spectrogram_image(
         tokens,                # the embeddings themselves (in some diffusion codes these are called 'tokens')
         aspect='auto',         # aspect ratio of plot
@@ -364,31 +366,43 @@ def tokens_spectrogram_image(
         ylabel='index',        # label for y axis of plot
         cmap='coolwarm',       # colormap to use. (default used to be 'viridis')
         symmetric=True,        # make color scale symmetric about zero, i.e. +/- same extremes
+        figsize=(8, 4),       # matplotlib size of the figure
+        dpi=100,               # dpi of figure
+        mark_batches=False,     # separate batches with dividing lines
+        debug=False,           # print debugging info
     ):
     "for visualizing embeddings in a spectrogram-like way"
-    embeddings = rearrange(tokens, 'b d n -> (b n) d')
+    batch_size, dim, samples = tokens.shape
+    embeddings = rearrange(tokens, 'b d n -> (b n) d')  # expand batches in time
     vmin, vmax = None, None
     if symmetric:
         vmax = torch.abs(embeddings).max()
         vmin = -vmax
-    fig = Figure(figsize=(10, 4), dpi=100)
+        
+    fig = Figure(figsize=figsize, dpi=dpi)
     canvas = FigureCanvasAgg(fig)
-    axs = fig.add_subplot()
+    ax = fig.add_subplot()
     if symmetric: 
         subtitle = f'min={embeddings.min():0.4g}, max={embeddings.max():0.4g}'
-        axs.set_title(title+'\n')
-        axs.text(x=0.435, y=0.9, s=subtitle, fontsize=11, ha="center", transform=fig.transFigure)
+        ax.set_title(title+'\n')
+        ax.text(x=0.435, y=0.9, s=subtitle, fontsize=11, ha="center", transform=fig.transFigure)
     else:
-        axs.set_title(title)
-    axs.set_ylabel(ylabel)
-    axs.set_xlabel('time frame')
-    im = axs.imshow(embeddings.cpu().numpy().T, origin='lower', aspect=aspect, interpolation='none', cmap=cmap, vmin=vmin,vmax=vmax) #.T because numpy is x/y 'backwards'
-    fig.colorbar(im, ax=axs)
+        ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel('time frame (samples, in batches)')
+    if mark_batches:
+        intervals = np.arange(batch_size)*samples
+        if debug: print("intervals = ",intervals)
+        ax.vlines(intervals, -10, dim+10, color='black', linestyle='dashed', linewidth=1)
+
+    im = ax.imshow(embeddings.cpu().numpy().T, origin='lower', aspect=aspect, interpolation='none', cmap=cmap, vmin=vmin,vmax=vmax) #.T because numpy is x/y 'backwards'
+    fig.colorbar(im, ax=ax)
+    fig.tight_layout()
     canvas.draw()
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 38
+# %% ../02_viz.ipynb 35
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
