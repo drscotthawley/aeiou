@@ -43,7 +43,7 @@ def normalize_audio(
       #anything else, pass unchanged
     return audio_out
 
-# %% ../00_core.ipynb 16
+# %% ../00_core.ipynb 17
 pdlbd_exts = None      # stores supported pedalboard file extensions. Global so it updates once per run
 
 def load_audio(
@@ -74,19 +74,19 @@ def load_audio(
     if norm in ['global','channel']: audio = normalize_audio(audio, norm=norm)
     return audio
 
-# %% ../00_core.ipynb 26
+# %% ../00_core.ipynb 27
 def get_dbmax(
     audio,       # torch tensor of (multichannel) audio
     ):
     "finds the loudest value in the entire clip and puts that into dB (full scale)"
     return 20*torch.log10(torch.flatten(audio.abs()).max()).cpu().numpy()
 
-# %% ../00_core.ipynb 29
+# %% ../00_core.ipynb 30
 def audio_float_to_int(waveform):
     "converts torch float to numpy int16 (for playback in notebooks)"
     return np.clip( waveform.cpu().numpy()*32768 , -32768, 32768).astype('int16')
 
-# %% ../00_core.ipynb 31
+# %% ../00_core.ipynb 32
 def is_silence(
     audio,       # torch tensor of (multichannel) audio
     thresh=-60,  # threshold in dB below which we declare to be silence
@@ -95,7 +95,7 @@ def is_silence(
     dBmax = get_dbmax(audio)
     return dBmax < thresh
 
-# %% ../00_core.ipynb 35
+# %% ../00_core.ipynb 36
 def batch_it_crazy(
     x,        # a time series as a PyTorch tensor, e.g. stereo or mono audio
     win_len,  # length of each "window", i.e. length of each element in new batch
@@ -108,7 +108,7 @@ def batch_it_crazy(
     xpad = F.pad(x, (0, pad_amt))
     return rearrange(xpad, 'd (b n) -> b d n', n=win_len)
 
-# %% ../00_core.ipynb 42
+# %% ../00_core.ipynb 43
 def makedir(
     path:str,              # directory or nested set of directories
     ):
@@ -120,7 +120,7 @@ def makedir(
     except:                # don't really care about errors
         pass
 
-# %% ../00_core.ipynb 44
+# %% ../00_core.ipynb 45
 def fast_scandir(
     dir:str,  # top-level directory at which to begin scanning
     ext:list  # list of allowed file extensions
@@ -147,7 +147,7 @@ def fast_scandir(
         files.extend(f)
     return subfolders, files
 
-# %% ../00_core.ipynb 48
+# %% ../00_core.ipynb 49
 def get_audio_filenames(
     paths:list   # directories in which to search
     ):
@@ -159,7 +159,7 @@ def get_audio_filenames(
         filenames.extend(files)
     return filenames
 
-# %% ../00_core.ipynb 51
+# %% ../00_core.ipynb 52
 def untuple(x, verbose=False):
     """Recursive.  For when you're sick of tuples and lists: 
     keeps peeling off elements until we get a non-tuple or non-list, 
