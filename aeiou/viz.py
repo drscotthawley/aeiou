@@ -65,13 +65,15 @@ def embeddings_table(tokens):
 def project_down(tokens,     # batched high-dimensional data with dims (b,d,n)
             proj_dims=3,     # dimensions to project to
             method='pca',    # projection method: 'pca'|'umap'
+            n_neighbors=10, # umap parameter for number of neighbors
+            min_dist=0.3,    # umap param for minimum distance
             **kwargs,        # other params to pass to umap, cf. https://umap-learn.readthedocs.io/en/latest/parameters.html 
             ):
     "this projects to lower dimenions, grabbing the first _`proj_dims`_ dimensions"
     A = rearrange(tokens, 'b d n -> (b n) d') # put all the vectors into the same d-dim space
     if A.shape[-1] > proj_dims: 
         if method=='umap':
-            proj_data = umap.UMAP(n_components=3, n_neighbors=5, min_dist=0.3,
+            proj_data = umap.UMAP(n_components=proj_dims, n_neighbors=n_neighbors, min_dist=min_dist,
                             metric='correlation', **kwargs).fit_transform(A.cpu().numpy())
             proj_data = torch.from_numpy(proj_data).to(tokens.device)
         else:  # pca
@@ -79,7 +81,7 @@ def project_down(tokens,     # batched high-dimensional data with dims (b,d,n)
             proj_data = torch.matmul(A, V[:, :proj_dims])  # this is the actual PCA projection step
     else:
         proj_data = A
-    return torch.reshape(proj_data, (tokens.size()[0], -1, proj_dims)) # put it in shape [batch, n, 3]
+    return torch.reshape(proj_data, (tokens.size()[0], -1, proj_dims)) # put it in shape [batch, n, proj_dims]
 
 def proj_pca(tokens, proj_dims=3):
     return project_down(do_proj, method='pca', proj_dims=proj_dims)
@@ -96,7 +98,10 @@ def point_cloud(
     **kwargs,                # anything else to pass along
     ):
     "returns a 3D point cloud of the tokens" 
-    data = project_down(tokens, method=method, **kwargs).cpu().numpy() 
+    data = project_down(tokens, method=method, **kwargs).cpu().numpy()
+    if data.shape[-1] < 3:
+        data = np.pad(data, ((0,0),(0,0),(0, 3-data.shape[-1])), mode='constant', constant_values=0)
+
     points = [] 
     if color_scheme=='batch':
         cmap, norm = cm.tab20, Normalize(vmin=0, vmax=data.shape[0])
@@ -174,7 +179,7 @@ def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers', line=dict
     "display a 3d scatter plot of tokens in notebook"
     show_point_cloud(tokens, color_scheme=color_scheme, mode=mode, line=line)
 
-# %% ../02_viz.ipynb 19
+# %% ../02_viz.ipynb 21
 def print_stats(waveform, sample_rate=None, src=None, print=print):
     "print stats about waveform. Taken verbatim from pytorch docs."
     if src:
@@ -193,7 +198,7 @@ def print_stats(waveform, sample_rate=None, src=None, print=print):
     print(f"{waveform}")
     print('')
 
-# %% ../02_viz.ipynb 23
+# %% ../02_viz.ipynb 25
 def mel_spectrogram(waveform, power=2.0, sample_rate=48000, db=False, n_fft=1024, n_mels=128, debug=False):
     "calculates data array for mel spectrogram (in however many channels)"
     win_length = None
@@ -214,7 +219,7 @@ def mel_spectrogram(waveform, power=2.0, sample_rate=48000, db=False, n_fft=1024
         print(f"melspec.shape = {melspec.shape}")
     return melspec
 
-# %% ../02_viz.ipynb 24
+# %% ../02_viz.ipynb 26
 def spectrogram_image(
         spec, 
         title=None, 
@@ -250,14 +255,14 @@ def spectrogram_image(
         #print(f"im.size = {im.size}")
     return im
 
-# %% ../02_viz.ipynb 25
+# %% ../02_viz.ipynb 27
 def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print, db=False, db_range=[35,120], justimage=False, log=False):
     "Wrapper for calling above two routines at once, does Mel scale; Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     melspec = mel_spectrogram(waveform, power=power, db=db, sample_rate=sample_rate, debug=log)
     melspec = melspec[0] # TODO: only left channel for now
     return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage)
 
-# %% ../02_viz.ipynb 29
+# %% ../02_viz.ipynb 31
 # Original code by Scott Condron (@scottire) of Weights and Biases, edited by @drscotthawley
 # cf. @scottire's original code here: https://gist.github.com/scottire/a8e5b74efca37945c0f1b0670761d568
 # and Morgan McGuire's edit here; https://github.com/morganmcg1/wandb_spectrogram
@@ -395,7 +400,7 @@ def playable_spectrogram(
     combined = combined.save(html_file_name)
     return wandb.Html(html_file_name) if output_type=='wandb' else html_file_name
 
-# %% ../02_viz.ipynb 33
+# %% ../02_viz.ipynb 35
 from matplotlib.ticker import AutoLocator 
 def tokens_spectrogram_image(
         tokens,                # the embeddings themselves (in some diffusion codes these are called 'tokens')
@@ -440,7 +445,7 @@ def tokens_spectrogram_image(
     rgba = np.asarray(canvas.buffer_rgba())
     return Image.fromarray(rgba)
 
-# %% ../02_viz.ipynb 37
+# %% ../02_viz.ipynb 39
 def plot_jukebox_embeddings(zs, aspect='auto'):
     "makes a plot of jukebox embeddings"
     fig, ax = plt.subplots(nrows=len(zs))
