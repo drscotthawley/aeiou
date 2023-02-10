@@ -15,7 +15,6 @@ import tqdm
 from multiprocessing import Pool, cpu_count
 from functools import partial
 from .core import load_audio, get_audio_filenames, is_silence, untuple
-from .viz import playable_spectrogram
 from fastcore.utils import *
 import webdataset as wds
 import subprocess
@@ -25,8 +24,8 @@ import pedalboard
 # %% auto 0
 __all__ = ['pipeline_return', 'RandomGain', 'PadCrop', 'PhaseFlipper', 'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo',
            'smoothstep', 'smoothstep_box', 'RandMask1D', 'AudioDataset', 'get_s3_contents', 'get_contiguous_range',
-           'fix_double_slashes', 'get_all_s3_urls', 'IterableAudioDataset', 'HybridAudioDataset', 'wds_preprocess',
-           'QuickWebDataLoader']
+           'fix_double_slashes', 'get_all_s3_urls', 'IterableAudioDataset', 'name_cache_file', 'wds_preprocess',
+           'AudioWebDataLoader']
 
 # %% ../01_datasets.ipynb 8
 def pipeline_return(
@@ -457,7 +456,7 @@ def get_all_s3_urls(
     recursive=True,  # recursively list all tar files in all subdirs
     filter_str='tar', # only grab files with this substring
     debug=False,     # print debugging info -- note: info displayed likely to change at dev's whims
-    profile='default',     # name of S3 profile to use (''=None)
+    profile='',     # name of S3 profile to use (''=None)
     ): 
     "get urls of shards (tar files) for multiple datasets in one s3 bucket"
     if s3_url_prefix[-1] != '/':  s3_url_prefix = s3_url_prefix + '/'
@@ -509,80 +508,14 @@ class IterableAudioDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         yield self.this.__getitem__(random.randint(0, self.len))
 
-# %% ../01_datasets.ipynb 90
-class HybridAudioDataset(torch.utils.data.IterableDataset):
-    "Combines AudioDataset and WebDataset"
-    def __init__(self, 
-        local_paths:list,      # list of local paths names to draw audio files from (recursively)
-        webdataset_names:list,    # list of LAION Audiodataset or Internet Archive dataset names
-        sample_rate=48000, # audio sample rate in Hz
-        sample_size=65536, # how many audio samples in each "chunk"
-        random_crop=True,  # take chunks from random positions within files
-        load_frac=1.0,     # fraction of total dataset to load
-        cache_training_data=False,  # True = pre-load whole dataset into memory (not fully supported)
-        num_gpus=8,        # used only when `cache_training_data=True`, to avoid duplicates,
-        redraw_silence=True, # a chunk containing silence will be replaced with a new one
-        silence_thresh=-60,  # threshold in dB below which we declare to be silence
-        max_redraws=2,        # when redrawing silences, don't do it more than this many
-        augs='Stereo(), PhaseFlipper()', # list of augmentation transforms **after PadCrop**, as a string
-        verbose=False,      # whether to print notices of reasampling or not
-        subsets=[],         # can specify, e.g. ['train','valid'] to exclude 'test'. default= grab everything!
-        s3_url_prefixes=['s3://s-laion-audio/webdataset_tar/'], # where to look on s3 for things
-        recursive=True,     # grab all tar files ("shards") recursively
-        debug=False,        # print debugging info
-        ):
-        "Combines local paths and WebDataset (s3:) datasets, streaming. Recommend leaving local_paths blank"
-        super().__init__()
-        
-        if isinstance(webdataset_names, str): webdataset_names = [webdataset_names] # if it's just a string, make it a list
-        base_augs = 'PadCrop(sample_size, randomize=random_crop, redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws)'
-        self.augs = eval(f'torch.nn.Sequential( {base_augs}, {augs} )')  
-        self.redraw_silence = redraw_silence
-        self.max_redraws = max_redraws
-        self.silence_thresh = silence_thresh
-
-        self.local_ds, self.web_ds, self.len = None, None, 0
-        # local paths
-        if len(local_paths) > 0:
-            self.local_ds = IterableAudioDataset(local_paths, sample_rate=sample_rate, sample_size=sample_size, random_crop=random_crop,
-                                    load_frac=load_frac, cache_training_data=cache_training_data, num_gpus=num_gpus,
-                                    redraw_silence=redraw_silence, silence_thresh=silence_thresh, max_redraws=max_redraws,
-                                    augs=None, verbose=verbose)  # do augs later
-        # web i.e. s3 paths
-        urls= []
-        for s3_url_prefix in s3_url_prefixes: # loop over various s3 bucket urls. this is maybe dumb/slow but generally will only execute once per run
-            subset_list = [] if 'laion' not in s3_url_prefix else subsets
-            urls0 = get_all_s3_urls(names=webdataset_names, subsets=subset_list, s3_url_prefix=s3_url_prefix, recursive=recursive, debug=debug)
-            if debug: print("urls0 = \n",urls0)
-            if len(urls0) > 0:  urls = urls + urls0
-        self.web_ds = wds.WebDataset(urls,  nodesplitter=wds.split_by_node).decode(wds.torch_audio).to_tuple("flac") 
-            
-        self.ds_list = []
-        if (self.local_ds != None): self.ds_list.append(self.local_ds)
-        if (self.web_ds != None): self.ds_list.append(self.web_ds)
+# %% ../01_datasets.ipynb 91
+def name_cache_file(url):
+    "provides the filename to which to cache a url"
+    return re.findall(r's3:.* -',url)[0][:-2].replace('/','_').replace(' ','\ ').replace(':','_')
 
 
-    def get_next_chunk(self):
-        ds_choice = random.choice(self.ds_list)  # randomly pick from available ds list
-        audio = untuple(next(iter(ds_choice)))   
-        if self.augs is not None: #Run augmentations on this sample (including random crop)
-            audio = self.augs(audio)
-        audio = audio.clamp(-1, 1)
-        return audio
-            
-        
-    def __iter__(self):
-        audio = self.get_next_chunk()
-        num_redraws = 0 
-        while (audio is None) or (self.redraw_silence and is_silence(audio, thresh=self.silence_thresh) \
-            and (num_redraws < self.max_redraws)):
-            audio, num_redraws = self.get_next_chunk(), num_redraws+1
-
-        yield audio
-
-# %% ../01_datasets.ipynb 94
 def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
-    "utility routine for QuickWebDataLoader, below"
+    "utility routine for AudioWebDataLoader, below"
     audio_keys = ("flac", "wav", "mp3", "aiff")
     found_key, rewrite_key = '', ''
     for k,v in sample.items():  # print the all entries in dict
@@ -592,15 +525,15 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
                 break
         if '' != found_key: break 
     if '' == found_key:  # got no audio!   
-        print("  Error: No audio in this sample:")
+        print("  wds_preprocess: Error: No audio in this sample:")
         for k,v in sample.items():  # print the all entries in dict
             print(f"    {k:20s} {repr(v)[:50]}")
-        print("       Skipping it.")
+        print("       wds_preprocess: Skipping it.")
         return None  # try returning None to tell WebDataset to skip this one ?   
     
     audio, in_sr = sample[found_key]
     if in_sr != sample_rate:
-        if verbose: print(f"Resampling {filename} from {in_sr} Hz to {sample_rate} Hz",flush=True)
+        if verbose: print(f"wds_preprocess: Resampling {filename} from {in_sr} Hz to {sample_rate} Hz",flush=True)
         resample_tf = T.Resample(in_sr, sample_rate)
         audio = resample_tf(audio)        
     myop = torch.nn.Sequential(PadCrop(sample_size), Stereo(), PhaseFlipper())
@@ -610,38 +543,46 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000, verbose=False):
     sample[rewrite_key] = audio    
     return sample
 
-# %% ../01_datasets.ipynb 95
-def QuickWebDataLoader(
-    names=['FSD50K'], # names of datasets. will search all available s3 urls
-    sample_size=65536, # how long each sample to grab via PadCrop
-    sample_rate=48000, # standard sr in Hz
-    num_workers=4,    # in the PyTorch DataLoader sense
-    batch_size=4,     # typical batch size
+# %% ../01_datasets.ipynb 92
+def AudioWebDataLoader(
+    names=['FSD50K'],        # names of datasets. will search all available s3 urls
+    sample_size=65536,       # how long each sample to grab via PadCrop
+    sample_rate=48000,       # standard sr in Hz
+    num_workers=os.cpu_count(),  # number of PyTorch DataLoaders; -1=use all CPUs.
+    prefetch_factor=10,       # number of batches to pre-fetch
+    batch_size=4,            # typical batch size
     audio_file_ext='flac',  # yep this one only supports one extension at a time. try HybridAudioDataset for more
     shuffle_vals=[1000, 10000],  # values passed into shuffle as per WDS tutorials
     epoch_len=1000,    # how many passes/loads make for an epoch? wds part of this is not well documented IMHO
-    debug=False,       # print info on internal workings
-    verbose=False,     # not quite the same as debug. print things like notices of resampling
+    debug=False,             # print info on internal workings
+    verbose=False,           # not quite same as debug. print things like notices of resampling
     callback=wds_preprocess, # function to call for additional user-based processing
-    **kwargs,          # what else to pass to callback
+    shuffle_urls=True,       # shuffle url list before it's passed to WebDataset
+    shuffle_seed=None,       # seed for shuffling of urls
+    **kwargs,                # what else to pass to callback
     ):
-    "Minimal/quick implementation: Sets up a WebDataLoader with some typical defaults"
+    "Sets up a WebDataLoader with some typical defaults"
     if verbose:print("Note: 'Broken pipe' messages you might get aren't a big deal, but may indicate files that are too big.")
     if names is not list: names = [names]
     urls = get_all_s3_urls(names=names, recursive=True, debug=debug) 
-    if debug: print("urls =\n",urls)
+    if debug: print("AudioWebDataLoader: urls =\n",urls)
     if len(urls) > 0:
+        if shuffle_urls:
+            if shuffle_seed is not None: 
+                random.seed(shuffle_seed)
+            random.shuffle(urls)
+            if debug: print("AudioWebDataLoader: shuffled urls =\n",urls)
         dataset = wds.DataPipeline(
-            wds.ResampledShards(urls),
+            wds.ResampledShards(urls), #  cache_dir='./_mycache'), <-- not allowed
             wds.tarfile_to_samples(),
             wds.shuffle(shuffle_vals[0]),
             wds.decode(wds.torch_audio),
             wds.map(partial(callback, sample_size=sample_size, sample_rate=sample_rate, verbose=verbose, **kwargs)),
             wds.shuffle(shuffle_vals[1]),
             wds.to_tuple(audio_file_ext),
-            wds.batched(batch_size)
+            wds.batched(batch_size),  
         ).with_epoch(epoch_len)
-        return wds.WebLoader(dataset, num_workers=num_workers)
+        return wds.WebLoader(dataset, num_workers=num_workers, prefetch_factor=prefetch_factor, **kwargs)
     else:
-        print("QuickWebDataLoader: No URLs found. Returning 'None'")
+        print("AudioWebDataLoader: No URLs found. Returning 'None'")
         return None
