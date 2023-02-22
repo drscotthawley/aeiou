@@ -9,9 +9,8 @@ import torch
 import torchaudio
 from torchaudio import transforms as T
 from torch.nn import functional as F
-from torch import Tensor
 import numpy as np
-import librosa
+from librosa import load as lr_load
 from pedalboard.io import AudioFile, get_supported_read_formats
 import os
 import math
@@ -62,7 +61,7 @@ def load_audio(
                 audio, in_sr = f.read(f.frames), f.samplerate
         else:
             if verbose: print("Warning: pedalboard mp3 support failed, falling back to librosa")
-            audio, in_sr = librosa.load(filename, mono=False, sr=sr)
+            audio, in_sr = lr_load(filename, mono=False, sr=sr)
         audio = torch.tensor(audio)
     else:
         audio, in_sr = torchaudio.load(filename)

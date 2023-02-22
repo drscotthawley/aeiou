@@ -311,7 +311,7 @@ def playable_spectrogram(
     '''
     Takes a tensor input and returns a [wandb.]HTML object with spectrograms of the audio
     specs : 
-      "all_specs", spetrograms only
+      "all_specs", spectrograms only
       "all", all plots
       "melspec", melspectrogram only
       "spec", spectrogram only
