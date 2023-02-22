@@ -58,8 +58,14 @@ documentation! To contribute:
     repository.
 
 ## Attribution
-
-``` bibtex
+Please include attribution of this code if you reproduce sections of it in your own code:
+```
+aeiou: audio engineering i/o utilities: Copyright (c) Scott H. Hawley, 2022-2023. https://github.com/drscotthawley/aeiou
+```
+ 
+ 
+In research papers, please cite this software if you find it useful:
+```bibtex
 @misc{aeiou,
   author = {Scott H. Hawley},
   title = {aeiou: audio engineering i/o utilities},
@@ -67,8 +73,7 @@ documentation! To contribute:
   url   = {https://github.com/drscotthawley/aeiou},
 }
 ```
-
-Copyright (c) Scott H. Hawley, 2022.
+Copyright (c) Scott H. Hawley, 2022-2023. 
 
 ## License
 
