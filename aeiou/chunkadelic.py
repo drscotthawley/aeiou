@@ -55,17 +55,17 @@ def blow_chunks(
 
 # %% ../03_chunkadelic.ipynb 8
 def set_bit_rate(bits, filename, debug=False):
-    if isinstance(bits, int): bits_per_sample = bits
-    elif args.bits.lower()=='none': 
+    if (bits is None) or isinstance(bits, int): bits_per_sample = bits
+    elif bits.lower()=='none': 
         bits_per_sample = None  # use torchaudio default 
-    elif args.bits.lower()=='match':
+    elif bits.lower()=='match':
         try:
             bits_per_sample = torchaudio.info(filename).bits_per_sample
         except Exception as e:
             print("     Error with bits=match: Can't get audio medatadata. Choosing default=None")
             bits_per_sample=None
     else:
-        bits_per_sample =  int(args.bits)
+        bits_per_sample =  int(bits)
     if debug: print("     set_bit_rate: bits_per_sample =",bits_per_sample,flush=True)
     return bits_per_sample
 
