@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['blow_chunks', 'set_bit_rate', 'chunk_one_file', 'main']
 
-# %% ../03_chunkadelic.ipynb 6
+# %% ../03_chunkadelic.ipynb 5
 import argparse 
 import os 
 from functools import partial
@@ -15,7 +15,7 @@ from .core import is_silence, load_audio, makedir, get_audio_filenames, normaliz
 import multiprocessing as mp
 from multiprocessing import Pool, cpu_count, Barrier
 
-# %% ../03_chunkadelic.ipynb 7
+# %% ../03_chunkadelic.ipynb 6
 def blow_chunks(
     audio:torch.tensor,  # long audio file to be chunked
     new_filename:str,    # stem of new filename(s) to be output as chunks
@@ -53,7 +53,7 @@ def blow_chunks(
         start, i = start + int(spacing * chunk_size), i + 1
     return 
 
-# %% ../03_chunkadelic.ipynb 8
+# %% ../03_chunkadelic.ipynb 7
 def set_bit_rate(bits, filename, debug=False):
     if (bits is None) or isinstance(bits, int): bits_per_sample = bits
     elif bits.lower()=='none': 
@@ -69,7 +69,7 @@ def set_bit_rate(bits, filename, debug=False):
     if debug: print("     set_bit_rate: bits_per_sample =",bits_per_sample,flush=True)
     return bits_per_sample
 
-# %% ../03_chunkadelic.ipynb 9
+# %% ../03_chunkadelic.ipynb 8
 def chunk_one_file(
     filenames:list,      # list of filenames from which we'll pick one
     args,                # output of argparse
@@ -108,7 +108,7 @@ def chunk_one_file(
     if args.debug: print(f" --- File {file_ind}: {filename} completed.\n", flush=True)
     return
 
-# %% ../03_chunkadelic.ipynb 13
+# %% ../03_chunkadelic.ipynb 12
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--chunk_size', type=int, default=2**17, help='Length of chunks')
