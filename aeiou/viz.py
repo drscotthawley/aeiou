@@ -67,9 +67,11 @@ def project_down(tokens,     # batched high-dimensional data with dims (b,d,n)
             method='pca',    # projection method: 'pca'|'umap'
             n_neighbors=10, # umap parameter for number of neighbors
             min_dist=0.3,    # umap param for minimum distance
+            debug=False,     # print more info while running
             **kwargs,        # other params to pass to umap, cf. https://umap-learn.readthedocs.io/en/latest/parameters.html 
             ):
     "this projects to lower dimenions, grabbing the first _`proj_dims`_ dimensions"
+    method = method.lower()
     A = rearrange(tokens, 'b d n -> (b n) d') # put all the vectors into the same d-dim space
     if A.shape[-1] > proj_dims: 
         if method=='umap':
@@ -81,7 +83,9 @@ def project_down(tokens,     # batched high-dimensional data with dims (b,d,n)
             proj_data = torch.matmul(A, V[:, :proj_dims])  # this is the actual PCA projection step
     else:
         proj_data = A
+    if debug: print("proj_data.shape =",proj_data.shape)
     return torch.reshape(proj_data, (tokens.size()[0], -1, proj_dims)) # put it in shape [batch, n, proj_dims]
+
 
 def proj_pca(tokens, proj_dims=3):
     return project_down(do_proj, method='pca', proj_dims=proj_dims)
@@ -90,28 +94,51 @@ def proj_pca(tokens, proj_dims=3):
 def point_cloud(
     tokens,                  # embeddings / latent vectors. shape = (b, d, n)
     method='pca',            # projection method for 3d mapping: 'pca' | 'umap'
-    color_scheme='batch',    # 'batch': group by sample, otherwise color sequentially
+    color_scheme='batch',    # 'batch': group by sample; integer n: n groups, sequentially,  otherwise color sequentially by time step
     output_type='wandbobj',  # plotly | points | wandbobj.  NOTE: WandB can do 'plotly' directly!
     mode='markers',    # plotly scatter mode.  'lines+markers' or 'markers'
     size=3,            # size of the dots
     line=dict(color='rgba(10,10,10,0.01)'),  # if mode='lines+markers', plotly line specifier. cf. https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.scatter3d.html#plotly.graph_objects.scatter3d.Line
+    ds_preproj=1,         # EXPERIMENTAL: downsampling factor before projecting  (1=no downsampling). Could screw up colors
+    ds_preplot=1,         # EXPERIMENTAL: downsampling factor before plotting (1=no downsampling). Could screw up colors
+    debug=False,          # print more info
     **kwargs,                # anything else to pass along
     ):
     "returns a 3D point cloud of the tokens" 
-    data = project_down(tokens, method=method, **kwargs).cpu().numpy()
-    if data.shape[-1] < 3:
+    if ds_preproj != 1: 
+        tokens = tokens[torch.randperm(tokens.size()[0])]  # EXPERIMENTAL: to 'correct' for possible weird effects of downsampling
+        tokens = tokens[::ds_preproj]
+        if debug: print("tokens.shape =",tokens.shape)
+
+    data = project_down(tokens, method=method, debug=debug, **kwargs).cpu().numpy()
+    if debug: print("data.shape =",data.shape)
+    if data.shape[-1] < 3: # for data less than 3D, embed it in 3D 
         data = np.pad(data, ((0,0),(0,0),(0, 3-data.shape[-1])), mode='constant', constant_values=0)
 
-    points = [] 
-    if color_scheme=='batch':
-        cmap, norm = cm.tab20, Normalize(vmin=0, vmax=data.shape[0])
-    else: 
-        cmap, norm = cm.viridis, Normalize(vmin=0, vmax=data.shape[1])
+    bytime = False
+    points = []         
+    if color_scheme=='batch': # all dots in same batch index same color, each batch-index unique (almost)
+        ncolors = data.shape[0]
+        cmap, norm = cm.tab20, Normalize(vmin=0, vmax=ncolors)
+    elif isinstance(color_scheme, int) or color_scheme.isnumeric():  # n groups, by batch-indices, sequentially
+        ncolors = int(color_scheme)
+        cmap, norm = cm.tab20, Normalize(vmin=0, vmax=ncolors)
+    else:                                                    # time steps match up
+        bytime, ncolors = True, data.shape[1]
+        cmap, norm = cm.viridis, Normalize(vmin=0, vmax=ncolors)
+    
+    points = []  
     for bi in range(data.shape[0]):  # batch index
-        if color_scheme=='batch': [r, g, b, _] = [int(255*x) for x in cmap(norm(bi))] 
-        for n in range(data.shape[1]):
-            if color_scheme!='batch': [r, g, b, _] = [int(255*x) for x in cmap(norm(n))] 
-            points.append([data[bi,n,0], data[bi,n,1], data[bi,n,2], r, g, b])
+        if color_scheme=='batch': 
+            [r, g, b, _] = [int(255*x) for x in cmap(norm(bi+1))] 
+        elif isinstance(color_scheme, int) or color_scheme.isnumeric():
+            grouplen = data.shape[0]//(ncolors)
+            if debug: print(f"bi, grouplen, bi//grouplen = ",bi, grouplen, bi//grouplen)
+            [r, g, b, _] = [int(255*x) for x in cmap(norm(bi//grouplen))] 
+            #if debug: print("r,g,b = ",r,g,b)
+        for n in range(data.shape[1]):    # across time
+            if bytime: [r, g, b, _] = [int(255*x) for x in cmap(norm(n))] 
+            points.append([data[bi,n,0], data[bi,n,1], data[bi,n,2], r, g, b])  # include dot colors with point coordinates
 
     point_cloud = np.array(points)
         
@@ -119,14 +146,15 @@ def point_cloud(
         return point_cloud
     elif output_type =='plotly':
         fig = go.Figure(data=[go.Scatter3d(
-            x=point_cloud[:,0], y=point_cloud[:,1], z=point_cloud[:,2], 
-            marker=dict(size=size, opacity=0.6, color=point_cloud[:,3:6]),
+            x=point_cloud[::ds_preplot,0], y=point_cloud[::ds_preplot,1], z=point_cloud[::ds_preplot,2], 
+            marker=dict(size=size, opacity=0.7, color=point_cloud[:,3:6]),
             mode=mode, 
             # show batch index and time index in tooltips: 
-            text=[ f'bi: {i}, ti: {j}' for i in range(data.shape[0]) for j in range(data.shape[1]) ],
+            text=[ f'bi: {i*ds_preplot}, ti: {j}' for i in range(data.shape[0]//ds_preplot) for j in range(data.shape[1]) ],
             line=line,
             )])
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
+        if debug: print("point_cloud: fig made. returning")
         return fig
     else:
         return wandb.Object3D(point_cloud)
@@ -169,10 +197,14 @@ def show_point_cloud(tokens,  # same arts as point_cloud
                      color_scheme='batch', 
                      mode='markers', 
                      line=dict(color='rgba(10,10,10,0.01)'),
+                     ds_preproj=1, 
+                     ds_preplot=1,
+                     debug=False,
                      **kwargs):
     "display a 3d scatter plot of tokens in notebook"
     setup_plotly()
-    fig = point_cloud(tokens, method=method, color_scheme=color_scheme, output_type='plotly', mode=mode, line=line, **kwargs)
+    fig = point_cloud(tokens,  ds_preproj=ds_preproj, ds_preplot=ds_preplot, debug=debug, method=method, 
+                      color_scheme=color_scheme, output_type='plotly', mode=mode, line=line, **kwargs)
     fig.show()    
     
 def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers', line=dict(color='rgba(10,10,10,0.01)')):
