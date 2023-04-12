@@ -25,7 +25,7 @@ import pedalboard
 # %% auto 0
 __all__ = ['pp_calls', 'pipeline_return', 'RandomGain', 'PadCrop', 'PadCrop_Normalized_T', 'PhaseFlipper', 'FillTheNoise',
            'RandPool', 'NormInputs', 'Mono', 'Stereo', 'smoothstep', 'smoothstep_box', 'RandMask1D', 'AudioDataset',
-           'get_s3_contents', 'get_contiguous_range', 'fix_double_slashes', 'get_all_s3_urls', 'IterableAudioDataset',
+           'fix_double_slashes', 'get_s3_contents', 'get_contiguous_range', 'get_all_s3_urls', 'IterableAudioDataset',
            'name_cache_file', 'wds_preprocess', 'log_and_continue', 'is_valid_sample', 'AudioWebDataLoader']
 
 # %% ../01_datasets.ipynb 8
@@ -419,7 +419,20 @@ class AudioDataset(torch.utils.data.Dataset):
         if self.verbose: print("__getitem__: x =",x)
         return self[random.randrange(len(self))] if (x is None) else x
 
-# %% ../01_datasets.ipynb 58
+# %% ../01_datasets.ipynb 57
+def fix_double_slashes(s, debug=False):
+    "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
+    cdsh_split = s.split('://')
+    assert (len(cdsh_split) <= 2) and (len(cdsh_split) > 0), f'what kind of string are you using? s={s}'
+    post = cdsh_split[-1]
+    while '//' in post: 
+        post = post.replace('//','/')
+    if len(cdsh_split) > 1: 
+        return cdsh_split[0] + '://' + post
+    else:
+        return post
+
+# %% ../01_datasets.ipynb 62
 def get_s3_contents(
     dataset_path,     # "name" of the dataset on s3
     s3_url_prefix='s3://s-laion-audio/webdataset_tar/',  # s3 bucket to check
@@ -431,7 +444,7 @@ def get_s3_contents(
     "Gets a list of names of files or subdirectories on an s3 path"
     if (dataset_path != '') and (not dataset_path.endswith('/')): 
         dataset_path = dataset_path + '/'
-    dataset_path = dataset_path.replace('//','/') # aws is baffled by double slashes in dir names
+    dataset_path = fix_double_slashes(dataset_path)
     if not recursive:
         run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}','--profile',profile], capture_output=True)
     else:
@@ -439,19 +452,21 @@ def get_s3_contents(
         run_ls = subprocess.run(["awk",'{$1=$2=$3=""; print $0}'], input=run_ls.stdout, capture_output=True)
         run_ls = subprocess.run(["sed",'s/^[ \t]*//'], input=run_ls.stdout, capture_output=True)
     contents = run_ls.stdout.decode('utf-8')
-    if debug: print("contents = \n",contents)
+    if debug: print("1 contents[:10] = \n",contents[:10]) # WARNING: this is a big long list
     contents = contents.split('\n') 
     contents = [x.strip() for x in contents if x]      # list of non-empty strings, without leading whitespace
     contents = [x.replace('PRE ','') if (x[-1]=='/') else x for x in contents]  # directories
-    #contents = [''.join(x.split(' ')[4:]) if (x[-1]!='/') else x for x in contents]    # files
-    if recursive:  # recursive flag weirdly adds redundant extr directory name taken from s3 url, so we should strip
-        main_dir = s3_url_prefix.split('/')[-2]
-        if debug: print("main_dir =",main_dir)
-        contents = [x.replace(f'{main_dir}/','').replace(dataset_path,'').replace('//','/') for x in contents]
-        if debug: print("contents = ",contents)
+    #if recursive:  # recursive flag weirdly adds redundant extra directory name taken from s3 url, so we should strip
+        # in recursive cases we'll get the full directory path off the host name
+        #main_dir = s3_url_prefix.split('/')[-2] # everything after the netloc
+        #if debug: print("main_dir =",main_dir)
+        #contents = [x.replace(f'{main_dir}/','').replace(dataset_path,'').replace('//','/') for x in contents]
+        #contents = [x.replace(dataset_path,'').replace('//','/') for x in contents]
+
+        #if debug: print("2 recursive contents[:10] = ",contents[:10])
     return [x for x in contents if filter in x] # return filtered list
 
-# %% ../01_datasets.ipynb 67
+# %% ../01_datasets.ipynb 71
 def get_contiguous_range(
     tar_names, # list of tar file names, although the .tar part is actually optional
     ):
@@ -467,19 +482,6 @@ def get_contiguous_range(
     else:
         print("get_contiguous_range: File numbers not continuous")  # have to do more work
         return '' # empty string will signify no dice; signal for more work to be done
-
-# %% ../01_datasets.ipynb 83
-def fix_double_slashes(s, debug=False):
-    "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
-    cdsh_split = s.split('://')
-    assert (len(cdsh_split) <= 2) and (len(cdsh_split) > 0), f'what kind of string are you using? s={s}'
-    post = cdsh_split[-1]
-    while '//' in post: 
-        post = post.replace('//','/')
-    if len(cdsh_split) > 1: 
-        return cdsh_split[0] + '://' + post
-    else:
-        return post
 
 # %% ../01_datasets.ipynb 87
 def get_all_s3_urls(
@@ -501,30 +503,30 @@ def get_all_s3_urls(
     names = [''] if names == [] else names # for loop below
     subsets = [''] if subsets == [] else subsets # for loop below
     for name in names:
-        if debug: print(f"get_all_s3_urls: {s3_url_prefix}{name}:")
+        purl = urlparse(name) # check if name already has a URL in it; if so, ignore s3_url_prefix
+        if purl.scheme == '':
+            s3_prefix = s3_url_prefix
+        else:
+            s3_prefix = f"{purl.scheme}://{purl.netloc}"
+            name = name.replace(s3_prefix,'')
+            if debug: 
+                print("s3_prefix, name = ",s3_prefix, name)
+        if debug: print(f"get_all_s3_urls: {s3_prefix}{name}:")
         for subset in subsets:
             contents_str = fix_double_slashes(f'{name}/{subset}/')
-            purl = urlparse(contents_str) # check if name already has a URL in it; if so, ignore s3_url_prefix
-            if purl.scheme == '':
-                s3_prefix = s3_url_prefix
-            else:
-                s3_prefix = f"{purl.scheme}://{purl.netloc}"
-                contents_str = contents_str.replace(s3_prefix,'')
-            if debug: print("contents_str =",contents_str)
-            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_prefix, recursive=recursive, filter=filter_str, debug=debug, profile=profile)
+            if debug: print("contents_str =",contents_str, ", s3_prefix =",s3_prefix)
+            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_prefix, recursive=recursive, filter=filter_str, debug=False, profile=profile)
             for tar in tar_list:
                 tar = tar.replace(" ","\ ").replace("(","\(").replace(")","\)") # escape spaces and parentheses for shell
-                s3_path  = f"{name}/{subset}/{tar} -"
-                while '//' in s3_path:  # aws hates double-slashes
-                    s3_path = s3_path.replace('//','/')
-                request_str = f"pipe:aws s3 --cli-connect-timeout 0 cp {s3_url_prefix}{s3_path}" 
+                s3_path  =  fix_double_slashes(f"{s3_prefix}/{tar} -")
+                request_str = f"pipe:aws s3 --cli-connect-timeout 0 cp {s3_path}" 
                 if profile != '': request_str += f" --profile {profile}"
                 if debug: print("request_str = ",request_str)
                 urls.append(fix_double_slashes(request_str))
     #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
     return urls
 
-# %% ../01_datasets.ipynb 89
+# %% ../01_datasets.ipynb 91
 class IterableAudioDataset(torch.utils.data.IterableDataset):
     "Iterable version of AudioDataset, used with Chain (below)"
     def __init__(self, 
@@ -551,7 +553,7 @@ class IterableAudioDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         yield self.this.__getitem__(random.randint(0, self.len))
 
-# %% ../01_datasets.ipynb 93
+# %% ../01_datasets.ipynb 95
 def name_cache_file(url):
     "provides the filename to which to cache a url"
     return re.findall(r's3:.* -',url)[0][:-2].replace('/','_').replace(' ','\ ').replace(':','_')
@@ -609,7 +611,7 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000, random_crop=Tru
 
     return sample
 
-# %% ../01_datasets.ipynb 96
+# %% ../01_datasets.ipynb 98
 def log_and_continue(exn):
     """Call in an exception handler to ignore any exception, isssue a warning, and continue. 
     source: audio-diffusion repo"""
@@ -626,7 +628,7 @@ def is_valid_sample(sample):
         print(f'is_valid_sample: result=False: ("json" in sample)={("json" in sample)}, ("audio" in sample) = {("audio" in sample)}, silence = {silence} ')
     return result
 
-# %% ../01_datasets.ipynb 98
+# %% ../01_datasets.ipynb 100
 def AudioWebDataLoader(
     names=['FSD50K'],        # names of datasets. will search all available s3 urls
     subsets=[''],            # list of subsets you want from those datasets, e.g. ['train','valid']
