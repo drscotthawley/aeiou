@@ -13,6 +13,7 @@ import os
 import json
 import tqdm
 from multiprocessing import Pool, cpu_count
+from urllib.parse import urlparse
 from functools import partial
 from .core import load_audio, get_audio_filenames, is_silence, untuple
 from fastcore.utils import *
@@ -482,9 +483,9 @@ def fix_double_slashes(s, debug=False):
 
 # %% ../01_datasets.ipynb 87
 def get_all_s3_urls(
-    names=[],    # list of all valid [LAION AudioDataset] dataset names 
+    names=[],    # list of all valid [LAION AudioDataset] dataset names, can include URLs in which case s3_url_prefix is ignored 
     subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
-    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those dataset names
+    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those dataset names if no s3:// supplied in names
     recursive=True,  # recursively list all tar files in all subdirs
     filter_str='tar', # only grab files with this substring
     debug=False,     # print debugging info -- note: info displayed likely to change at dev's whims
@@ -492,7 +493,10 @@ def get_all_s3_urls(
     **kwargs
     ): 
     "get urls of shards (tar files) for multiple datasets in one s3 bucket"
-    if s3_url_prefix[-1] != '/':  s3_url_prefix = s3_url_prefix + '/'
+    if s3_url_prefix is None:
+        s3_url_prefix = ''
+    #elif s3_url_prefix != '':
+    #    if s3_url_prefix[-1] != '/':  s3_url_prefix = s3_url_prefix + '/'
     urls = []
     names = [''] if names == [] else names # for loop below
     subsets = [''] if subsets == [] else subsets # for loop below
@@ -500,8 +504,14 @@ def get_all_s3_urls(
         if debug: print(f"get_all_s3_urls: {s3_url_prefix}{name}:")
         for subset in subsets:
             contents_str = fix_double_slashes(f'{name}/{subset}/')
+            purl = urlparse(contents_str) # check if name already has a URL in it; if so, ignore s3_url_prefix
+            if purl.scheme == '':
+                s3_prefix = s3_url_prefix
+            else:
+                s3_prefix = f"{purl.scheme}://{purl.netloc}"
+                contents_str = contents_str.replace(s3_prefix,'')
             if debug: print("contents_str =",contents_str)
-            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_url_prefix, recursive=recursive, filter=filter_str, debug=debug, profile=profile)
+            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_prefix, recursive=recursive, filter=filter_str, debug=debug, profile=profile)
             for tar in tar_list:
                 tar = tar.replace(" ","\ ").replace("(","\(").replace(")","\)") # escape spaces and parentheses for shell
                 s3_path  = f"{name}/{subset}/{tar} -"
