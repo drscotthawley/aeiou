@@ -2,7 +2,8 @@
 
 # %% auto 0
 __all__ = ['pdlbd_exts', 'get_device', 'is_tool', 'normalize_audio', 'load_audio', 'get_dbmax', 'audio_float_to_int',
-           'is_silence', 'batch_it_crazy', 'makedir', 'fast_scandir', 'get_audio_filenames', 'untuple']
+           'is_silence', 'batch_it_crazy', 'makedir', 'fast_scandir', 'get_audio_filenames', 'untuple',
+           'get_latest_ckpt', 'rnd_string', 'get_run_name']
 
 # %% ../00_core.ipynb 4
 import torch
@@ -15,6 +16,9 @@ from pedalboard.io import AudioFile, get_supported_read_formats
 import os
 import math
 from einops import rearrange
+import random
+import string
+import glob
 
 # %% ../00_core.ipynb 5
 def get_device(gpu_str=''):
@@ -181,3 +185,28 @@ def untuple(x, verbose=False):
     else:
         if verbose: print("no: x = ",x)
         return x
+
+# %% ../00_core.ipynb 57
+def get_latest_ckpt(
+    dir_tree,            # name of the group of runs without run name or unique identifer
+    run_name_prefix='',  # run name without unique identifier for particular run
+    verbose=True  # whether to pring message(s)
+    ):
+    "This will grab the most recent checkpoint filename in dir tree given by name"
+    search_string = f"{dir_tree}/{run_name_prefix}*/checkpoints/*.ckpt"
+    if verbose: print(f"Looking for latest checkpoint in {search_string}")
+    list_of_files = glob.glob(search_string, recursive=True) 
+    if [] == list_of_files:
+        print("WARNING: No matching checkpoint files found. Starting run from scratch.") 
+        return ""
+    else:
+        return max(list_of_files, key=os.path.getctime)
+
+# %% ../00_core.ipynb 59
+def rnd_string(n=8): 
+    "random letters and numbers of given length. case sensitive"
+    return ''.join(random.choice(string.ascii_letters+string.digits) for i in range(n))
+
+def get_run_name(run_name_prefix='', n=8):
+    "prepends run name prefix to random string. Alternative to PL/WandB random run names" 
+    return run_name_prefix+'_'+rnd_string(n) if run_name_prefix !='' else rnd_string(n)
