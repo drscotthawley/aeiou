@@ -207,6 +207,7 @@ def rnd_string(n=8):
     "random letters and numbers of given length. case sensitive"
     return ''.join(random.choice(string.ascii_letters+string.digits) for i in range(n))
 
-def get_run_name(run_name_prefix='', n=8):
-    "prepends run name prefix to random string. Alternative to PL/WandB random run names" 
-    return run_name_prefix+'_'+rnd_string(n) if run_name_prefix !='' else rnd_string(n)
+def get_run_name(run_name_prefix='', n=8, wandb_logger=None):
+    "prepends run name prefix to either wandb.version or to random string of length n" 
+    s = rnd_string(n) if wandb_logger is None else wandb_logger.version
+    return s if run_name_prefix=='' else  f"{run_name_prefix}_{s}"
