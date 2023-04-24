@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['pdlbd_exts', 'get_device', 'is_tool', 'normalize_audio', 'load_audio', 'get_dbmax', 'audio_float_to_int',
            'is_silence', 'batch_it_crazy', 'makedir', 'fast_scandir', 'get_audio_filenames', 'untuple',
-           'get_latest_ckpt', 'rnd_string', 'get_run_name']
+           'get_latest_ckpt', 'rnd_string', 'get_run_info']
 
 # %% ../00_core.ipynb 4
 import torch
@@ -207,7 +207,17 @@ def rnd_string(n=8):
     "random letters and numbers of given length. case sensitive"
     return ''.join(random.choice(string.ascii_letters+string.digits) for i in range(n))
 
-def get_run_name(run_name_prefix='', n=8, wandb_logger=None):
-    "prepends run name prefix to either wandb.version or to random string of length n" 
-    s = rnd_string(n) if wandb_logger is None else wandb_logger.version
-    return s if run_name_prefix=='' else  f"{run_name_prefix}_{s}"
+def get_run_info(run_name, verbose=True):
+    """
+    parses run_name into (ideally) prefix & id using underscore as separator, and/or fills in missing info if needed
+    NOTE: do not trust generated strings to be same on other processes
+    """
+    run_info = run_name.split('_')
+    prefix = run_info[0]
+    if len(run_info)>1: 
+        run_id = run_info[-1] 
+    else:
+        run_id = rnd_string()
+        if verbose: print(f"WARNING: generating random run_id as {run_id}. Might be different on different process(es).")
+    new_run_name = f"{prefix}_{run_id}" if prefix !='' else f"{run_id}" 
+    return {'prefix': prefix, 'id':run_id, 'run_name':new_run_name}
