@@ -213,9 +213,15 @@ def show_point_cloud(tokens,  # same arts as point_cloud
                       color_scheme=color_scheme, output_type='plotly', mode=mode, line=line, **kwargs)
     fig.show()    
     
-def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers', colormap=None, line=dict(color='rgba(10,10,10,0.01)')):
+def show_pca_point_cloud(tokens, 
+                         color_scheme='batch', 
+                         mode='markers', 
+                         colormap=None, 
+                         line=dict(color='rgba(10,10,10,0.01)'),
+                         **kwargs,
+                        ):
     "display a 3d scatter plot of tokens in notebook"
-    show_point_cloud(tokens, color_scheme=color_scheme, mode=mode, colormap=colormap, line=line)
+    show_point_cloud(tokens, color_scheme=color_scheme, mode=mode, colormap=colormap, line=line, **kwargs)
 
 # %% ../02_viz.ipynb 21
 def print_stats(waveform, sample_rate=None, src=None, print=print):
