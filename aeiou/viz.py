@@ -150,14 +150,17 @@ def point_cloud(
     elif output_type =='plotly':
         fig = go.Figure(data=[go.Scatter3d(
             x=point_cloud[::ds_preplot,0], y=point_cloud[::ds_preplot,1], z=point_cloud[::ds_preplot,2], 
-            marker=dict(size=size, opacity=1.0, color=point_cloud[:,3:6]),
+            marker=dict(size=size,  color=point_cloud[:,3:6]),
             mode=mode, 
             # show batch index and time index in tooltips: 
             text=[ f'bi: {i*ds_preplot}, ti: {j}' for i in range(data.shape[0]//ds_preplot) for j in range(data.shape[1]) ],
             line=line,
             )])
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
-        if darkmode: fig.layout.template = 'plotly_dark'
+        if darkmode: 
+            fig.layout.template = 'plotly_dark'
+            if isinstance(darkmode, str): fig.update_layout( paper_bgcolor='rgb(12,15,24)') # gradio hack
+
             
         if debug: print("point_cloud: fig made. returning")
         return fig
