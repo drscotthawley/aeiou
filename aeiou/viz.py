@@ -102,6 +102,7 @@ def point_cloud(
     ds_preplot=1,         # EXPERIMENTAL: downsampling factor before plotting (1=no downsampling). Could screw up colors
     debug=False,          # print more info
     colormap=None,        # valid color map to use, None=defaults
+    darkmode=False,       # dark background, white fonts
     **kwargs,             # anything else to pass along
     ):
     "returns a 3D point cloud of the tokens" 
@@ -156,6 +157,8 @@ def point_cloud(
             line=line,
             )])
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
+        if darkmode: fig.layout.template = 'plotly_dark'
+            
         if debug: print("point_cloud: fig made. returning")
         return fig
     else:
@@ -169,10 +172,10 @@ def pca_point_cloud(
     mode='markers',    # plotly scatter mode.  'lines+markers' or 'markers'
     size=3,            # size of the dots
     line=dict(color='rgba(10,10,10,0.01)'),  # if mode='lines+markers', plotly line specifier. cf. https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.scatter3d.html#plotly.graph_objects.scatter3d.Line
-    colormap=None,           # valid plotly color map to use, None=defaults
+    **kwargs,
     ):
     return point_cloud(tokens, method='pca', color_scheme=color_scheme, output_type=output_type,
-        mode=mode, size=size, line=line, colormap=colormap,)
+        mode=mode, size=size, line=line, **kwargs)
 
 # %% ../02_viz.ipynb 11
 # have to do a little extra stuff to make this come out in the docs.  This part taken from drscotthawley's `mrspuff` library
@@ -202,13 +205,12 @@ def show_point_cloud(tokens,  # same arts as point_cloud
                      line=dict(color='rgba(10,10,10,0.01)'),
                      ds_preproj=1, 
                      ds_preplot=1,
-                     colormap=None,           # valid plotly color map to use, None=defaults
                      debug=False,
                      **kwargs):
     "display a 3d scatter plot of tokens in notebook"
     setup_plotly()
     fig = point_cloud(tokens,  ds_preproj=ds_preproj, ds_preplot=ds_preplot, debug=debug, method=method, 
-                      color_scheme=color_scheme, colormap=colormap, output_type='plotly', mode=mode, line=line, **kwargs)
+                      color_scheme=color_scheme, output_type='plotly', mode=mode, line=line, **kwargs)
     fig.show()    
     
 def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers', colormap=None, line=dict(color='rgba(10,10,10,0.01)')):
