@@ -18,18 +18,17 @@ from matplotlib.figure import Figure
 import numpy as np
 from PIL import Image
 
-
 import torch
 from torch import optim, nn
 from torch.nn import functional as F
 import torchaudio
 import torchaudio.transforms as T
-import librosa 
+from librosa import power_to_db
 from einops import rearrange
 
 import wandb
 import numpy as np
-import pandas as pd
+from pandas import DataFrame
 import umap
 
 from IPython.display import display, HTML  # just for displaying inside notebooks
@@ -57,7 +56,7 @@ def embeddings_table(tokens):
     #print("\nfeatures.shape = ",features.shape)
     labels = np.concatenate(labels, axis=0)
     cols = [f"dim_{i}" for i in range(features.shape[1])]
-    df   = pd.DataFrame(features, columns=cols)
+    df   = DataFrame(features, columns=cols)
     df['LABEL'] = labels
     return wandb.Table(columns=df.columns.to_list(), data=df.values)
 
@@ -67,9 +66,11 @@ def project_down(tokens,     # batched high-dimensional data with dims (b,d,n)
             method='pca',    # projection method: 'pca'|'umap'
             n_neighbors=10, # umap parameter for number of neighbors
             min_dist=0.3,    # umap param for minimum distance
+            debug=False,     # print more info while running
             **kwargs,        # other params to pass to umap, cf. https://umap-learn.readthedocs.io/en/latest/parameters.html 
             ):
     "this projects to lower dimenions, grabbing the first _`proj_dims`_ dimensions"
+    method = method.lower()
     A = rearrange(tokens, 'b d n -> (b n) d') # put all the vectors into the same d-dim space
     if A.shape[-1] > proj_dims: 
         if method=='umap':
@@ -81,7 +82,9 @@ def project_down(tokens,     # batched high-dimensional data with dims (b,d,n)
             proj_data = torch.matmul(A, V[:, :proj_dims])  # this is the actual PCA projection step
     else:
         proj_data = A
+    if debug: print("proj_data.shape =",proj_data.shape)
     return torch.reshape(proj_data, (tokens.size()[0], -1, proj_dims)) # put it in shape [batch, n, proj_dims]
+
 
 def proj_pca(tokens, proj_dims=3):
     return project_down(do_proj, method='pca', proj_dims=proj_dims)
@@ -90,28 +93,56 @@ def proj_pca(tokens, proj_dims=3):
 def point_cloud(
     tokens,                  # embeddings / latent vectors. shape = (b, d, n)
     method='pca',            # projection method for 3d mapping: 'pca' | 'umap'
-    color_scheme='batch',    # 'batch': group by sample, otherwise color sequentially
+    color_scheme='batch',    # 'batch': group by sample; integer n: n groups, sequentially,  otherwise color sequentially by time step
     output_type='wandbobj',  # plotly | points | wandbobj.  NOTE: WandB can do 'plotly' directly!
     mode='markers',    # plotly scatter mode.  'lines+markers' or 'markers'
     size=3,            # size of the dots
     line=dict(color='rgba(10,10,10,0.01)'),  # if mode='lines+markers', plotly line specifier. cf. https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.scatter3d.html#plotly.graph_objects.scatter3d.Line
-    **kwargs,                # anything else to pass along
+    ds_preproj=1,         # EXPERIMENTAL: downsampling factor before projecting  (1=no downsampling). Could screw up colors
+    ds_preplot=1,         # EXPERIMENTAL: downsampling factor before plotting (1=no downsampling). Could screw up colors
+    debug=False,          # print more info
+    colormap=None,        # valid color map to use, None=defaults
+    darkmode=False,       # dark background, white fonts
+    layout_dict=None,      # extra plotly layout options such as camera orientation
+    **kwargs,             # anything else to pass along
     ):
     "returns a 3D point cloud of the tokens" 
-    data = project_down(tokens, method=method, **kwargs).cpu().numpy()
-    if data.shape[-1] < 3:
+    if ds_preproj != 1: 
+        tokens = tokens[torch.randperm(tokens.size()[0])]  # EXPERIMENTAL: to 'correct' for possible weird effects of downsampling
+        tokens = tokens[::ds_preproj]
+        if debug: print("tokens.shape =",tokens.shape)
+
+    data = project_down(tokens, method=method, debug=debug, **kwargs).cpu().numpy()
+    if debug: print("data.shape =",data.shape)
+    if data.shape[-1] < 3: # for data less than 3D, embed it in 3D 
         data = np.pad(data, ((0,0),(0,0),(0, 3-data.shape[-1])), mode='constant', constant_values=0)
 
-    points = [] 
-    if color_scheme=='batch':
-        cmap, norm = cm.tab20, Normalize(vmin=0, vmax=data.shape[0])
-    else: 
-        cmap, norm = cm.viridis, Normalize(vmin=0, vmax=data.shape[1])
+    bytime = False
+    points = []         
+    if color_scheme=='batch': # all dots in same batch index same color, each batch-index unique (almost)
+        ncolors = data.shape[0]
+        cmap, norm = cm.tab20, Normalize(vmin=0, vmax=ncolors)
+    elif isinstance(color_scheme, int) or color_scheme.isnumeric():  # n groups, by batch-indices, sequentially
+        ncolors = int(color_scheme)
+        cmap, norm = cm.tab20, Normalize(vmin=0, vmax=ncolors)
+    else:                                                    # time steps match up
+        bytime, ncolors = True, data.shape[1]
+        cmap, norm = cm.viridis, Normalize(vmin=0, vmax=ncolors)
+
+    cmap = cmap if colormap is None else colormap # overwrite default cmap with user choice if given 
+
+    points = []  
     for bi in range(data.shape[0]):  # batch index
-        if color_scheme=='batch': [r, g, b, _] = [int(255*x) for x in cmap(norm(bi))] 
-        for n in range(data.shape[1]):
-            if color_scheme!='batch': [r, g, b, _] = [int(255*x) for x in cmap(norm(n))] 
-            points.append([data[bi,n,0], data[bi,n,1], data[bi,n,2], r, g, b])
+        if color_scheme=='batch': 
+            [r, g, b, _] = [int(255*x) for x in cmap(norm(bi+1))] 
+        elif isinstance(color_scheme, int) or color_scheme.isnumeric():
+            grouplen = data.shape[0]//(ncolors)
+            #if debug: print(f"bi, grouplen, bi//grouplen = ",bi, grouplen, bi//grouplen)
+            [r, g, b, _] = [int(255*x) for x in cmap(norm(bi//grouplen))] 
+            #if debug: print("r,g,b = ",r,g,b)
+        for n in range(data.shape[1]):    # across time
+            if bytime: [r, g, b, _] = [int(255*x) for x in cmap(norm(n))] 
+            points.append([data[bi,n,0], data[bi,n,1], data[bi,n,2], r, g, b])  # include dot colors with point coordinates
 
     point_cloud = np.array(points)
         
@@ -119,14 +150,22 @@ def point_cloud(
         return point_cloud
     elif output_type =='plotly':
         fig = go.Figure(data=[go.Scatter3d(
-            x=point_cloud[:,0], y=point_cloud[:,1], z=point_cloud[:,2], 
-            marker=dict(size=size, opacity=0.6, color=point_cloud[:,3:6]),
+            x=point_cloud[::ds_preplot,0], y=point_cloud[::ds_preplot,1], z=point_cloud[::ds_preplot,2], 
+            marker=dict(size=size,  color=point_cloud[:,3:6]),
             mode=mode, 
             # show batch index and time index in tooltips: 
-            text=[ f'bi: {i}, ti: {j}' for i in range(data.shape[0]) for j in range(data.shape[1]) ],
+            text=[ f'bi: {i*ds_preplot}, ti: {j}' for i in range(data.shape[0]//ds_preplot) for j in range(data.shape[1]) ],
             line=line,
             )])
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
+        if darkmode: 
+            fig.layout.template = 'plotly_dark'
+            if isinstance(darkmode, str):   # 'rgb(12,15,24)'gradio margins in dark mode
+                fig.update_layout( paper_bgcolor=darkmode) 
+        if layout_dict:
+                fig.update_layout( **layout_dict ) 
+            
+        if debug: print("point_cloud: fig made. returning")
         return fig
     else:
         return wandb.Object3D(point_cloud)
@@ -139,9 +178,10 @@ def pca_point_cloud(
     mode='markers',    # plotly scatter mode.  'lines+markers' or 'markers'
     size=3,            # size of the dots
     line=dict(color='rgba(10,10,10,0.01)'),  # if mode='lines+markers', plotly line specifier. cf. https://plotly.github.io/plotly.py-docs/generated/plotly.graph_objects.scatter3d.html#plotly.graph_objects.scatter3d.Line
+    **kwargs,
     ):
     return point_cloud(tokens, method='pca', color_scheme=color_scheme, output_type=output_type,
-        mode=mode, size=size, line=line)
+        mode=mode, size=size, line=line, **kwargs)
 
 # %% ../02_viz.ipynb 11
 # have to do a little extra stuff to make this come out in the docs.  This part taken from drscotthawley's `mrspuff` library
@@ -169,15 +209,25 @@ def show_point_cloud(tokens,  # same arts as point_cloud
                      color_scheme='batch', 
                      mode='markers', 
                      line=dict(color='rgba(10,10,10,0.01)'),
+                     ds_preproj=1, 
+                     ds_preplot=1,
+                     debug=False,
                      **kwargs):
     "display a 3d scatter plot of tokens in notebook"
     setup_plotly()
-    fig = point_cloud(tokens, method=method, color_scheme=color_scheme, output_type='plotly', mode=mode, line=line, **kwargs)
+    fig = point_cloud(tokens,  ds_preproj=ds_preproj, ds_preplot=ds_preplot, debug=debug, method=method, 
+                      color_scheme=color_scheme, output_type='plotly', mode=mode, line=line, **kwargs)
     fig.show()    
     
-def show_pca_point_cloud(tokens, color_scheme='batch', mode='markers', line=dict(color='rgba(10,10,10,0.01)')):
+def show_pca_point_cloud(tokens, 
+                         color_scheme='batch', 
+                         mode='markers', 
+                         colormap=None, 
+                         line=dict(color='rgba(10,10,10,0.01)'),
+                         **kwargs,
+                        ):
     "display a 3d scatter plot of tokens in notebook"
-    show_point_cloud(tokens, color_scheme=color_scheme, mode=mode, line=line)
+    show_point_cloud(tokens, color_scheme=color_scheme, mode=mode, colormap=colormap, line=line, **kwargs)
 
 # %% ../02_viz.ipynb 21
 def print_stats(waveform, sample_rate=None, src=None, print=print):
@@ -235,7 +285,7 @@ def spectrogram_image(
     canvas = FigureCanvasAgg(fig)
     axs = fig.add_subplot()
     spec = spec.squeeze()
-    im = axs.imshow(librosa.power_to_db(spec), origin='lower', aspect=aspect, vmin=db_range[0], vmax=db_range[1])
+    im = axs.imshow(power_to_db(spec), origin='lower', aspect=aspect, vmin=db_range[0], vmax=db_range[1])
     if xmax:
         axs.set_xlim((0, xmax))
     if justimage:
@@ -292,7 +342,7 @@ def generate_melspec(audio_data, sample_rate=48000, power=2.0, n_fft = 1024, win
     )
 
     melspec = mel_spectrogram_op(audio_data).numpy()
-    mel_db = np.flipud(librosa.power_to_db(melspec))
+    mel_db = np.flipud(power_to_db(melspec))
     return mel_db
 
 
