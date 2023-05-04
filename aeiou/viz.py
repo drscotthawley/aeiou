@@ -103,6 +103,7 @@ def point_cloud(
     debug=False,          # print more info
     colormap=None,        # valid color map to use, None=defaults
     darkmode=False,       # dark background, white fonts
+    layout_dict=None,      # extra plotly layout options such as camera orientation
     **kwargs,             # anything else to pass along
     ):
     "returns a 3D point cloud of the tokens" 
@@ -159,8 +160,10 @@ def point_cloud(
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0)) # tight layout
         if darkmode: 
             fig.layout.template = 'plotly_dark'
-            if isinstance(darkmode, str): fig.update_layout( paper_bgcolor='rgb(12,15,24)') # gradio hack
-
+            if isinstance(darkmode, str):   # 'rgb(12,15,24)'gradio margins in dark mode
+                fig.update_layout( paper_bgcolor=darkmode) 
+        if layout_dict:
+                fig.update_layout( **layout_dict ) 
             
         if debug: print("point_cloud: fig made. returning")
         return fig

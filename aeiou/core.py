@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['pdlbd_exts', 'get_device', 'is_tool', 'normalize_audio', 'load_audio', 'get_dbmax', 'audio_float_to_int',
            'is_silence', 'batch_it_crazy', 'makedir', 'fast_scandir', 'get_audio_filenames', 'untuple',
-           'get_latest_ckpt', 'rnd_string', 'get_run_info']
+           'get_latest_ckpt_old', 'get_latest_ckpt', 'rnd_string', 'get_run_info']
 
 # %% ../00_core.ipynb 4
 import torch
@@ -19,6 +19,8 @@ from einops import rearrange
 import random
 import string
 import glob
+from pathlib import Path
+import warnings
 
 # %% ../00_core.ipynb 5
 def get_device(gpu_str=''):
@@ -187,7 +189,7 @@ def untuple(x, verbose=False):
         return x
 
 # %% ../00_core.ipynb 57
-def get_latest_ckpt(
+def get_latest_ckpt_old(
     dir_tree,            # name of the group of runs without run name or unique identifer
     run_name_prefix='',  # run name without unique identifier for particular run
     verbose=True  # whether to pring message(s)
@@ -201,10 +203,33 @@ def get_latest_ckpt(
         return ""
     else:
         return max(list_of_files, key=os.path.getctime)
+    
+def get_latest_ckpt(
+    dir_tree,            # name of the run without unique identifer
+    run_name_prefix='',  # unique identifier for particular run
+    sim_ckpts=[''],       # string or list of strings. other paths to check under if nothing's in dir_tree
+    verbose=True,        # whether to pring message(s)
+    ):
+    "This will grab the most recent checkpoint filename in dir tree given by name"
+    list_of_files = list(Path(dir_tree).glob(f'**/{run_name_prefix}*/checkpoints/*.ckpt'))
+    if [] != list_of_files: return max(list_of_files, key=os.path.getctime)
+    print(f"   Nothing relevant found in {dir_tree}. Checking also in {sim_ckpts}.")
+    if isinstance(sim_ckpts, str): sim_ckpts = [sim_ckpts]
+    for pattern in sim_ckpts:
+        if verbose: print("   pattern = ",pattern) 
+        directories = [dir_path for dir_path in glob.glob(pattern) if not os.path.isfile(dir_path)]
+        if verbose: print("   Also checking in ",directories) 
+        for directory in directories:
+            if verbose: print("     directory = ",directory)
+            list_of_files += list(Path(directory).glob(f'**/{run_name_prefix}*/checkpoints/*.ckpt'))
+    if [] != list_of_files: return max(list_of_files, key=os.path.getctime)
+    warnings.warn("   No matching checkpoint files found anywhere. Starting run from scratch.") 
+    return ""
 
-# %% ../00_core.ipynb 59
+# %% ../00_core.ipynb 60
 def rnd_string(n=8): 
     "random letters and numbers of given length. case sensitive"
+    raise DeprecationWarning("Better to generate random string in SLURM script")
     return ''.join(random.choice(string.ascii_letters+string.digits) for i in range(n))
 
 def get_run_info(run_name, verbose=True):
@@ -219,5 +244,6 @@ def get_run_info(run_name, verbose=True):
     else:
         run_id = rnd_string()
         if verbose: print(f"WARNING: generating random run_id as {run_id}. Might be different on different process(es).")
+        raise DeprecationWarning("Instead, generate random string in SLURM script")
     new_run_name = f"{prefix}_{run_id}" if prefix !='' else f"{run_id}" 
     return {'prefix': prefix, 'id':run_id, 'run_name':new_run_name}
