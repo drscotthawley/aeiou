@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['pdlbd_exts', 'get_device', 'is_tool', 'normalize_audio', 'load_audio', 'get_dbmax', 'audio_float_to_int',
            'is_silence', 'batch_it_crazy', 'makedir', 'fast_scandir', 'get_audio_filenames', 'untuple',
-           'get_latest_ckpt_old', 'get_latest_ckpt', 'rnd_string', 'get_run_info']
+           'get_latest_ckpt', 'rnd_string', 'get_run_info']
 
 # %% ../00_core.ipynb 4
 import torch
@@ -189,26 +189,11 @@ def untuple(x, verbose=False):
         return x
 
 # %% ../00_core.ipynb 57
-def get_latest_ckpt_old(
-    dir_tree,            # name of the group of runs without run name or unique identifer
-    run_name_prefix='',  # run name without unique identifier for particular run
-    verbose=True  # whether to pring message(s)
-    ):
-    "This will grab the most recent checkpoint filename in dir tree given by name"
-    search_string = f"{dir_tree}/{run_name_prefix}*/checkpoints/*.ckpt"
-    if verbose: print(f"Looking for latest checkpoint in {search_string}")
-    list_of_files = glob.glob(search_string, recursive=True) 
-    if [] == list_of_files:
-        print("WARNING: No matching checkpoint files found. Starting run from scratch.") 
-        return ""
-    else:
-        return max(list_of_files, key=os.path.getctime)
-    
 def get_latest_ckpt(
     dir_tree,            # name of the run without unique identifer
     run_name_prefix='',  # unique identifier for particular run
     sim_ckpts=[''],       # string or list of strings. other paths to check under if nothing's in dir_tree
-    verbose=True,        # whether to pring message(s)
+    verbose=True,        # whether to print message(s)
     ):
     "This will grab the most recent checkpoint filename in dir tree given by name"
     list_of_files = list(Path(dir_tree).glob(f'**/{run_name_prefix}*/checkpoints/*.ckpt'))
