@@ -23,7 +23,6 @@ import re
 import pedalboard
 from typing import Tuple
 
-
 # %% auto 0
 __all__ = ['pipeline_return', 'RandomGain', 'PadCrop', 'PadCrop_Normalized_T_old', 'PadCrop_Normalized_T', 'PhaseFlipper',
            'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'smoothstep', 'smoothstep_box', 'RandMask1D',
