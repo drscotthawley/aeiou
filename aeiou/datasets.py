@@ -21,12 +21,14 @@ import webdataset as wds
 import subprocess
 import re
 import pedalboard
+from typing import Tuple
 
 # %% auto 0
-__all__ = ['pp_calls', 'pipeline_return', 'RandomGain', 'PadCrop', 'PadCrop_Normalized_T', 'PhaseFlipper', 'FillTheNoise',
-           'RandPool', 'NormInputs', 'Mono', 'Stereo', 'smoothstep', 'smoothstep_box', 'RandMask1D', 'AudioDataset',
-           'fix_double_slashes', 'get_s3_contents', 'get_contiguous_range', 'get_all_s3_urls', 'IterableAudioDataset',
-           'name_cache_file', 'wds_preprocess', 'log_and_continue', 'is_valid_sample', 'AudioWebDataLoader']
+__all__ = ['pipeline_return', 'RandomGain', 'PadCrop', 'PadCrop_Normalized_T_old', 'PadCrop_Normalized_T', 'PhaseFlipper',
+           'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'smoothstep', 'smoothstep_box', 'RandMask1D',
+           'AudioDataset', 'fix_double_slashes', 'get_s3_contents', 'get_contiguous_range', 'get_all_s3_urls',
+           'get_all_s3_urls_zach', 'IterableAudioDataset', 'name_cache_file', 'wds_preprocess', 'log_and_continue',
+           'is_valid_sample', 'AudioWebDataLoader', 'get_wds_loader']
 
 # %% ../01_datasets.ipynb 8
 def pipeline_return(
@@ -99,7 +101,7 @@ class PadCrop(nn.Module):
             return x 
 
 # %% ../01_datasets.ipynb 16
-class PadCrop_Normalized_T(nn.Module):
+class PadCrop_Normalized_T_old(nn.Module):
     """Variation on PadCrop.  source: Zach Evan's audio-diffusion repo"""
     def __init__(self, n_samples: int, randomize:bool = True):
 
@@ -129,6 +131,47 @@ class PadCrop_Normalized_T(nn.Module):
             t_start,
             t_end
         )
+    
+    
+    
+
+class PadCrop_Normalized_T(nn.Module):
+    
+    def __init__(self, n_samples: int, sample_rate: int, randomize: bool = True):
+        "Newer version as per Zach's edits"
+        
+        super().__init__()
+        
+        self.n_samples = n_samples
+        self.sample_rate = sample_rate
+        self.randomize = randomize
+
+    def __call__(self, source: torch.Tensor) -> Tuple[torch.Tensor, float, float, int, int]:
+        
+        n_channels, n_samples = source.shape
+        
+        upper_bound = max(0, n_samples - self.n_samples)
+        
+        offset = 0
+        if(self.randomize and n_samples > self.n_samples):
+            offset = random.randint(0, upper_bound + 1)
+
+        t_start = offset / (upper_bound + self.n_samples)
+        t_end = (offset + self.n_samples) / (upper_bound + self.n_samples)
+
+        chunk = source.new_zeros([n_channels, self.n_samples])
+        chunk[:, :min(n_samples, self.n_samples)] = source[:, offset:offset + self.n_samples]
+        
+        seconds_start = math.floor(offset / self.sample_rate)
+        seconds_total = math.ceil(n_samples / self.sample_rate)
+        
+        return (
+            chunk,
+            t_start,
+            t_end,
+            seconds_start,
+            seconds_total
+        )
 
 # %% ../01_datasets.ipynb 21
 class PhaseFlipper(nn.Module):
@@ -145,7 +188,7 @@ class PhaseFlipper(nn.Module):
 
 # %% ../01_datasets.ipynb 22
 class FillTheNoise(nn.Module):
-    "randomly adds a bit of noise, or not, just to spice things up"
+    "randomly adds a bit of noise, or not, just to spice things up. (Name is an homage to DJ/artist/collaborator Kill the Noise)"
     def __init__(self, 
         p=0.33       # probability that noise will be added
         ):
@@ -189,7 +232,7 @@ class Mono(nn.Module):
     "convert audio to mono"
     def __call__(self, x):
         signal = x if not isinstance(x, dict) else x['inputs']
-        out = torch.mean(signal, dim=0) if len(signal.shape) > 1 else signal
+        out = torch.mean(signal, dim=0) if len(signal.shape) > 1 else signal  # average across channels
         return pipeline_return(out, x)
 
 # %% ../01_datasets.ipynb 26
@@ -416,13 +459,13 @@ class AudioDataset(torch.utils.data.Dataset):
             x, num_redraws = self.get_next_chunk(next_idx), num_redraws+1
             audio = x if not isinstance(x, dict) else x['inputs']
     
-        if self.verbose: print("__getitem__: x =",x)
+        #if self.verbose: print("__getitem__: x =",x) # turning this off. verbose should only show resampling notices
         return self[random.randrange(len(self))] if (x is None) else x
 
 # %% ../01_datasets.ipynb 57
 def fix_double_slashes(s, debug=False):
     "aws is pretty unforgiving compared to 'normal' filesystems. so here's some 'cleanup'"
-    cdsh_split = s.split('://')
+    cdsh_split = s.split('://')  # peel of double-slashes associated with URL
     assert (len(cdsh_split) <= 2) and (len(cdsh_split) > 0), f'what kind of string are you using? s={s}'
     post = cdsh_split[-1]
     while '//' in post: 
@@ -445,6 +488,7 @@ def get_s3_contents(
     if (dataset_path != '') and (not dataset_path.endswith('/')): 
         dataset_path = dataset_path + '/'
     dataset_path = fix_double_slashes(dataset_path)
+    #if debug:  print(f"cmd string: aws s3 ls {s3_url_prefix}{dataset_path} --profile {profile}")
     if not recursive:
         run_ls = subprocess.run(['aws','s3','ls',f'{s3_url_prefix}{dataset_path}','--profile',profile], capture_output=True)
     else:
@@ -470,10 +514,10 @@ def get_s3_contents(
 def get_contiguous_range(
     tar_names, # list of tar file names, although the .tar part is actually optional
     ):
-    "given a string of tar file names, return a string of their range if the numbers are contiguous. Otherwise return empty string"
+    "given a string of tar file names, return a string of their numerical range if the numbers are contiguous. Otherwise return empty string"
     if len(tar_names) == 0:  return ''
     elif len(tar_names) == 1: return tar_names[-1]
-    just_nums = [x.replace('.tar','') for x in tar_names]
+    just_nums = [ Path(x).stem for x in tar_names]    # get just the filenames, no extension or directory
     just_nums.sort(key=int) # sorts numerically but meaningfully preserves leading zeros in strings
     nums_arr = np.asarray(just_nums,  dtype=int)
     is_contiguous =  np.abs( (nums_arr - np.roll(nums_arr,1)) [1:] ).max() == 1
@@ -487,21 +531,19 @@ def get_contiguous_range(
 def get_all_s3_urls(
     names=[],    # list of all valid [LAION AudioDataset] dataset names, can include URLs in which case s3_url_prefix is ignored 
     subsets=[''],   # list of subsets you want from those datasets, e.g. ['train','valid']
-    s3_url_prefix='s3://s-laion-audio/webdataset_tar/',   # prefix for those dataset names if no s3:// supplied in names
+    s3_url_prefix=None,   # prefix for those dataset names if no s3:// supplied in names, e.g. 's3://s-laion-audio/webdataset_tar/'
     recursive=True,  # recursively list all tar files in all subdirs
     filter_str='tar', # only grab files with this substring
     debug=False,     # print debugging info -- note: info displayed likely to change at dev's whims
-    profile='',     # name of S3 profile to use (''=None)
+    profiles={},     # list of S3 profiles to use, e.g. {'s3://s-laion-audio':'default'}
     **kwargs
     ): 
     "get urls of shards (tar files) for multiple datasets in one s3 bucket"
     if s3_url_prefix is None:
         s3_url_prefix = ''
-    #elif s3_url_prefix != '':
-    #    if s3_url_prefix[-1] != '/':  s3_url_prefix = s3_url_prefix + '/'
     urls = []
-    names = [''] if names == [] else names # for loop below
-    subsets = [''] if subsets == [] else subsets # for loop below
+    names = [''] if names == [] else names          # make sure it's a list, for loop below
+    subsets = [''] if subsets == [] else subsets    # make sure it's a list, for loop below
     for name in names:
         purl = urlparse(name) # check if name already has a URL in it; if so, ignore s3_url_prefix
         if purl.scheme == '':
@@ -510,12 +552,16 @@ def get_all_s3_urls(
             s3_prefix = f"{purl.scheme}://{purl.netloc}"
             name = name.replace(s3_prefix,'')
             if debug: 
-                print("s3_prefix, name = ",s3_prefix, name)
+                print(f"s3_prefix = {s3_prefix}, name = {name}")
         if debug: print(f"get_all_s3_urls: {s3_prefix}{name}:")
         for subset in subsets:
             contents_str = fix_double_slashes(f'{name}/{subset}/')
-            if debug: print("contents_str =",contents_str, ", s3_prefix =",s3_prefix)
-            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_prefix, recursive=recursive, filter=filter_str, debug=False, profile=profile)
+            # match profile with name or use default
+            profile = profiles.get(s3_prefix, 'default')
+            if debug: 
+                print(f"  name = {name}, profile = {profile}") 
+                print("   contents_str =",contents_str, ", s3_prefix =",s3_prefix)
+            tar_list = get_s3_contents(contents_str, s3_url_prefix=s3_prefix, recursive=recursive, filter=filter_str, debug=debug, profile=profile)
             for tar in tar_list:
                 tar = tar.replace(" ","\ ").replace("(","\(").replace(")","\)") # escape spaces and parentheses for shell
                 s3_path  =  fix_double_slashes(f"{s3_prefix}/{tar} -")
@@ -526,7 +572,57 @@ def get_all_s3_urls(
     #urls = [x.replace('tar//','tar/') for x in urls] # one last double-check
     return urls
 
-# %% ../01_datasets.ipynb 91
+
+
+import posixpath
+
+def get_all_s3_urls_zach(
+    names=[],           # list of all valid [LAION AudioDataset] dataset names 
+    subsets=[''],       # list of subsets you want from those datasets, e.g. ['train','valid']
+    s3_url_prefix=None, # prefix for those dataset names
+    recursive=True,     # recursively list all tar files in all subdirs
+    filter_str='tar',   # only grab files with this substring
+    debug=False,        # print debugging info -- note: info displayed likely to change at dev's whims
+    profiles={},        # dictionary of profiles for each item in names, e.g. {'dataset1': 'profile1', 'dataset2': 'profile2'}
+):
+    "get urls of shards (tar files) for multiple datasets in one s3 bucket"
+    urls = []
+    for name in names:
+        # If s3_url_prefix is not specified, assume the full S3 path is included in each element of the names list
+        if s3_url_prefix is None or ''==s3_url_prefix:
+            contents_str = name
+        else:
+            # Construct the S3 path using the s3_url_prefix and the current name value
+            contents_str = posixpath.join(s3_url_prefix, name)
+        if debug:
+            print(f"get_all_s3_urls: {contents_str}")
+        for subset in subsets:
+            subset_str = posixpath.join(contents_str, subset)
+            if debug:
+                print(f"   subset_str = {subset_str}")
+            # Get the list of tar files in the current subset directory
+            profile = profiles.get(name, 'default')
+            if debug: print(f"  name = {name}, profile = {profile}") 
+            tar_list = get_s3_contents(subset_str, s3_url_prefix=None, recursive=recursive, filter=filter_str, debug=debug, profile=profile)
+            for tar in tar_list:
+                # Escape spaces and parentheses in the tar filename for use in the shell command
+                tar = tar.replace(" ","\ ").replace("(","\(").replace(")","\)")
+                # Construct the S3 path to the current tar file
+                s3_path  = posixpath.join(name, subset, tar) + " -"
+                # Construct the AWS CLI command to download the current tar file
+                if s3_url_prefix is None:
+                    request_str = f"pipe:aws s3 --cli-connect-timeout 0 cp {s3_path}"
+                else:
+                    request_str = f"pipe:aws s3 --cli-connect-timeout 0 cp {posixpath.join(s3_url_prefix, s3_path)}" 
+                if profiles.get(name):
+                    request_str += f" --profile {profiles.get(name)}"
+                if debug:
+                    print("request_str = ", request_str)
+                # Add the constructed URL to the list of URLs
+                urls.append(request_str)
+    return urls
+
+# %% ../01_datasets.ipynb 90
 class IterableAudioDataset(torch.utils.data.IterableDataset):
     "Iterable version of AudioDataset, used with Chain (below)"
     def __init__(self, 
@@ -553,13 +649,15 @@ class IterableAudioDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         yield self.this.__getitem__(random.randint(0, self.len))
 
-# %% ../01_datasets.ipynb 95
+# %% ../01_datasets.ipynb 94
 def name_cache_file(url):
     "provides the filename to which to cache a url"
     return re.findall(r's3:.* -',url)[0][:-2].replace('/','_').replace(' ','\ ').replace(':','_')
 
+"""
+# old version by drscotthawley, replaced by Zach's edits, scroll down
 pp_calls = 0
-def wds_preprocess(sample, sample_size=65536, sample_rate=48000, random_crop=True, verbose=False):
+def wds_preprocess_old(sample, sample_size=65536, sample_rate=48000, random_crop=True, verbose=False):
     "sampling and processing callback/handler for AudioWebDataLoader, below"
     global pp_calls
     pp_calls+= 1
@@ -610,8 +708,92 @@ def wds_preprocess(sample, sample_size=65536, sample_rate=48000, random_crop=Tru
     if verbose: print(f"     ---->  Leaving wds_preprocess: sample.items() = {sample.items()}")
 
     return sample
+"""
 
-# %% ../01_datasets.ipynb 98
+def wds_preprocess(
+  sample, 
+  sample_size=65536, 
+  sample_rate=48000, 
+  verbose=False, 
+  random_crop=True, 
+  normalize_lufs=None, 
+  metadata_prompt_funcs=None,
+  force_channels = "stereo",
+  augment_phase = True,
+):
+    """utility routine for QuickWebDataLoader, below.
+    New version by Zach Evans, from https://github.com/zqevans/audio-diffusion/dataset.py.  Old version in source, commented out
+    """
+    audio_keys = ("flac", "wav", "mp3", "m4a", "ogg")
+
+    found_key, rewrite_key = '', ''
+    for k,v in sample.items():  # print the all entries in dict
+        for akey in audio_keys:
+            if k.endswith(akey): 
+                found_key, rewrite_key = k, akey  # to rename long/weird key with its simpler counterpart
+                break
+        if '' != found_key: break 
+    if '' == found_key:  # got no audio!   
+        # print("  Error: No audio in this sample:")
+        # for k,v in sample.items():  # print the all entries in dict
+        #     print(f"    {k:20s} {repr(v)[:50]}")
+        # print("       Skipping it.")
+        return None  # try returning None to tell WebDataset to skip this one ?   
+    
+    audio, in_sr = sample[found_key]
+    if in_sr != sample_rate:
+        if in_sr < 8000:
+            print(f"Very low SR ({in_sr}) for file {sample['url']}")
+        if verbose: print(f"Resampling from {in_sr} Hz to {sample_rate} Hz",flush=True)
+        resample_tf = T.Resample(in_sr, sample_rate)
+        audio = resample_tf(audio)        
+
+    if normalize_lufs is not None:
+        # Loudness normalization to -12 LKFS, adapted from pyloudnorm
+        meter = pyln.Meter(sample_rate)
+        loudness = meter.integrated_loudness(audio.transpose(-2, -1).numpy())
+        delta_loudness = (normalize_lufs - float(loudness))
+        gain = 10.0 ** (delta_loudness/20.0)
+        audio = gain * audio
+
+    if sample_size is not None:
+        # Pad/crop and get the relative timestamp
+        pad_crop = PadCrop_Normalized_T(sample_size, randomize=random_crop, sample_rate=sample_rate)
+        audio, t_start, t_end, seconds_start, seconds_total = pad_crop(audio)
+        sample["json"]["seconds_start"] = seconds_start
+        sample["json"]["seconds_total"] = seconds_total
+    else:
+        t_start, t_end = 0, 1
+
+    #Check if audio is length zero, initialize to a single zero if so
+    if audio.shape[-1] == 0:
+        audio = torch.zeros(1, 1)
+
+    # Make the audio stereo and augment by randomly inverting phase
+    augs = torch.nn.Sequential(
+        Stereo() if force_channels == "stereo" else torch.nn.Identity(), 
+        Mono() if force_channels == "mono" else torch.nn.Identity(),
+        PhaseFlipper() if augment_phase else torch.nn.Identity()
+    )
+    audio = augs(audio)
+
+    sample["timestamps"] = (t_start, t_end)
+
+    if "text" in sample["json"]:
+        sample["json"]["prompt"] = sample["json"]["text"]
+
+    if metadata_prompt_funcs is not None:
+        for key, prompt_func in metadata_prompt_funcs.items():
+            if key in sample["__url__"]:
+                prompt = prompt_func(sample["json"])
+                sample["json"]["prompt"] = prompt
+
+    if found_key != rewrite_key:   # rename long/weird key with its simpler counterpart
+        del sample[found_key]
+    sample["audio"] = audio    
+    return sample
+
+# %% ../01_datasets.ipynb 97
 def log_and_continue(exn):
     """Call in an exception handler to ignore any exception, isssue a warning, and continue. 
     source: audio-diffusion repo"""
@@ -628,7 +810,7 @@ def is_valid_sample(sample):
         print(f'is_valid_sample: result=False: ("json" in sample)={("json" in sample)}, ("audio" in sample) = {("audio" in sample)}, silence = {silence} ')
     return result
 
-# %% ../01_datasets.ipynb 100
+# %% ../01_datasets.ipynb 99
 def AudioWebDataLoader(
     names=['FSD50K'],        # names of datasets. will search all available s3 urls
     subsets=[''],            # list of subsets you want from those datasets, e.g. ['train','valid']
@@ -696,3 +878,31 @@ def AudioWebDataLoader(
     else:
         print("*****ERROR: AudioWebDataLoader: No URLs found. Returning 'None'")
         return None
+
+# %% ../01_datasets.ipynb 105
+def get_wds_loader(batch_size, sample_size, names, s3_url_prefix=None, sample_rate=48000, num_workers=8, 
+                   recursive=True, profiles={}, epoch_steps=1000, random_crop=True, normalize_lufs=None, 
+                   metadata_prompt_funcs=None, force_channels="stereo", augment_phase=True):
+    "Simpler loader from https://github.com/zqevans/audio-diffusion/dataset.py"
+    
+    preprocess_fn = partial(wds_preprocess, sample_size=sample_size, sample_rate=sample_rate, random_crop=random_crop, normalize_lufs=normalize_lufs, metadata_prompt_funcs=metadata_prompt_funcs, force_channels=force_channels, augment_phase=augment_phase)
+
+    urls = get_all_s3_urls(
+      names=names, 
+      s3_url_prefix=s3_url_prefix,
+      recursive=recursive,
+      profiles=profiles
+    )
+
+    dataset = wds.DataPipeline(
+      wds.ResampledShards(urls), # Yields a single .tar URL
+      wds.tarfile_to_samples(handler=log_and_continue), # Opens up a stream to the TAR file, yields files grouped by keys
+      wds.decode(wds.torch_audio, handler=log_and_continue),
+      wds.map(preprocess_fn, handler=log_and_continue),
+      #wds.shuffle(bufsize=100, initial=10, handler=log_and_continue), # Pulls from iterator until initial value
+      wds.select(is_valid_sample),
+      wds.to_tuple("audio", "json", "timestamps", handler=log_and_continue),
+      wds.batched(batch_size, partial=False)
+    ).with_epoch(epoch_steps//num_workers if num_workers > 0 else epoch_steps)
+
+    return wds.WebLoader(dataset, num_workers=num_workers)
