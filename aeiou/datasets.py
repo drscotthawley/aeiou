@@ -21,13 +21,15 @@ import webdataset as wds
 import subprocess
 import re
 import pedalboard
+from typing import Tuple
+
 
 # %% auto 0
-__all__ = ['pipeline_return', 'RandomGain', 'PadCrop', 'PadCrop_Normalized_T', 'PhaseFlipper', 'FillTheNoise', 'RandPool',
-           'NormInputs', 'Mono', 'Stereo', 'smoothstep', 'smoothstep_box', 'RandMask1D', 'AudioDataset',
-           'fix_double_slashes', 'get_s3_contents', 'get_contiguous_range', 'get_all_s3_urls', 'get_all_s3_urls_zach',
-           'IterableAudioDataset', 'name_cache_file', 'wds_preprocess', 'log_and_continue', 'is_valid_sample',
-           'AudioWebDataLoader', 'get_wds_loader']
+__all__ = ['pipeline_return', 'RandomGain', 'PadCrop', 'PadCrop_Normalized_T_old', 'PadCrop_Normalized_T', 'PhaseFlipper',
+           'FillTheNoise', 'RandPool', 'NormInputs', 'Mono', 'Stereo', 'smoothstep', 'smoothstep_box', 'RandMask1D',
+           'AudioDataset', 'fix_double_slashes', 'get_s3_contents', 'get_contiguous_range', 'get_all_s3_urls',
+           'get_all_s3_urls_zach', 'IterableAudioDataset', 'name_cache_file', 'wds_preprocess', 'log_and_continue',
+           'is_valid_sample', 'AudioWebDataLoader', 'get_wds_loader']
 
 # %% ../01_datasets.ipynb 8
 def pipeline_return(
@@ -100,7 +102,7 @@ class PadCrop(nn.Module):
             return x 
 
 # %% ../01_datasets.ipynb 16
-class PadCrop_Normalized_T(nn.Module):
+class PadCrop_Normalized_T_old(nn.Module):
     """Variation on PadCrop.  source: Zach Evan's audio-diffusion repo"""
     def __init__(self, n_samples: int, randomize:bool = True):
 
@@ -129,6 +131,47 @@ class PadCrop_Normalized_T(nn.Module):
             chunk,
             t_start,
             t_end
+        )
+    
+    
+    
+
+class PadCrop_Normalized_T(nn.Module):
+    
+    def __init__(self, n_samples: int, sample_rate: int, randomize: bool = True):
+        "Newer version as per Zach's edits"
+        
+        super().__init__()
+        
+        self.n_samples = n_samples
+        self.sample_rate = sample_rate
+        self.randomize = randomize
+
+    def __call__(self, source: torch.Tensor) -> Tuple[torch.Tensor, float, float, int, int]:
+        
+        n_channels, n_samples = source.shape
+        
+        upper_bound = max(0, n_samples - self.n_samples)
+        
+        offset = 0
+        if(self.randomize and n_samples > self.n_samples):
+            offset = random.randint(0, upper_bound + 1)
+
+        t_start = offset / (upper_bound + self.n_samples)
+        t_end = (offset + self.n_samples) / (upper_bound + self.n_samples)
+
+        chunk = source.new_zeros([n_channels, self.n_samples])
+        chunk[:, :min(n_samples, self.n_samples)] = source[:, offset:offset + self.n_samples]
+        
+        seconds_start = math.floor(offset / self.sample_rate)
+        seconds_total = math.ceil(n_samples / self.sample_rate)
+        
+        return (
+            chunk,
+            t_start,
+            t_end,
+            seconds_start,
+            seconds_total
         )
 
 # %% ../01_datasets.ipynb 21
@@ -701,44 +744,44 @@ def wds_preprocess(
     audio, in_sr = sample[found_key]
     if in_sr != sample_rate:
         if in_sr < 8000:
-          print(f"Very low SR ({in_sr}) for file {sample['url']}")
+            print(f"Very low SR ({in_sr}) for file {sample['url']}")
         if verbose: print(f"Resampling from {in_sr} Hz to {sample_rate} Hz",flush=True)
         resample_tf = T.Resample(in_sr, sample_rate)
         audio = resample_tf(audio)        
 
     if normalize_lufs is not None:
-      # Loudness normalization to -12 LKFS, adapted from pyloudnorm
-      meter = pyln.Meter(sample_rate)
-      loudness = meter.integrated_loudness(audio.transpose(-2, -1).numpy())
-      delta_loudness = (normalize_lufs - float(loudness))
-      gain = 10.0 ** (delta_loudness/20.0)
-      audio = gain * audio
+        # Loudness normalization to -12 LKFS, adapted from pyloudnorm
+        meter = pyln.Meter(sample_rate)
+        loudness = meter.integrated_loudness(audio.transpose(-2, -1).numpy())
+        delta_loudness = (normalize_lufs - float(loudness))
+        gain = 10.0 ** (delta_loudness/20.0)
+        audio = gain * audio
 
     if sample_size is not None:
-      # Pad/crop and get the relative timestamp
-      pad_crop = PadCrop_Normalized_T(sample_size, randomize=random_crop, sample_rate=sample_rate)
-      audio, t_start, t_end, seconds_start, seconds_total = pad_crop(audio)
-      sample["json"]["seconds_start"] = seconds_start
-      sample["json"]["seconds_total"] = seconds_total
+        # Pad/crop and get the relative timestamp
+        pad_crop = PadCrop_Normalized_T(sample_size, randomize=random_crop, sample_rate=sample_rate)
+        audio, t_start, t_end, seconds_start, seconds_total = pad_crop(audio)
+        sample["json"]["seconds_start"] = seconds_start
+        sample["json"]["seconds_total"] = seconds_total
     else:
-      t_start, t_end = 0, 1
+        t_start, t_end = 0, 1
 
     #Check if audio is length zero, initialize to a single zero if so
     if audio.shape[-1] == 0:
-      audio = torch.zeros(1, 1)
+        audio = torch.zeros(1, 1)
 
     # Make the audio stereo and augment by randomly inverting phase
     augs = torch.nn.Sequential(
-      Stereo() if force_channels == "stereo" else torch.nn.Identity(), 
-      Mono() if force_channels == "mono" else torch.nn.Identity(),
-      PhaseFlipper() if augment_phase else torch.nn.Identity()
+        Stereo() if force_channels == "stereo" else torch.nn.Identity(), 
+        Mono() if force_channels == "mono" else torch.nn.Identity(),
+        PhaseFlipper() if augment_phase else torch.nn.Identity()
     )
     audio = augs(audio)
 
     sample["timestamps"] = (t_start, t_end)
 
     if "text" in sample["json"]:
-      sample["json"]["prompt"] = sample["json"]["text"]
+        sample["json"]["prompt"] = sample["json"]["text"]
 
     if metadata_prompt_funcs is not None:
         for key, prompt_func in metadata_prompt_funcs.items():
