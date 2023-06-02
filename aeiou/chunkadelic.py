@@ -26,12 +26,13 @@ def blow_chunks(
     strip=False,    # strip silence: chunks with max power in dB below this value will not be saved to files
     thresh=-70,      # threshold in dB for determining what counts as silence
     bits_per_sample=None, # kwarg for torchaudio.save, None means use defaults
+    nopad=False,     # disable zero-padding, allowing samples to be shorter than chunk_size (including "leftovers" on the "ends")
     debug=False,     # print debugging information 
     ):
     "chunks up the audio and saves them with --{i} on the end of each chunk filename"
     if (debug): print(f"       blow_chunks: audio.shape = {audio.shape}",flush=True)
         
-    chunk = torch.zeros(audio.shape[0], chunk_size)
+    #chunk = torch.zeros(audio.shape[0], chunk_size)  
     _, ext = os.path.splitext(new_filename)
     
     if norm in ['global','channel']:  audio = normalize_audio(audio, norm)     
@@ -42,11 +43,13 @@ def blow_chunks(
     while start < audio.shape[-1]:
         out_filename = new_filename.replace(ext, f'--{i}'+ext) 
         end = min(start + chunk_size, audio.shape[-1])
-        if end-start < chunk_size:  # needs zero padding on end
-            chunk = torch.zeros(audio.shape[0], chunk_size)
-        chunk[:,0:end-start] = audio[:,start:end]
+        if (end-start < chunk_size) and not nopad:  # audio shorter than chunk_size: pad with zeros
+            chunk = torch.zeros(audio.shape[0], chunk_size) 
+            chunk[:,0:end-start] = audio[:,start:end]
+        else:
+            chunk = audio[:,start:end]
         if (not strip) or (not is_silence(chunk, thresh=thresh)):
-            if debug: print(f"     Saving output chunk {out_filename}, bits_per_sample={bits_per_sample}", flush=True)
+            if debug: print(f"     Saving output chunk {out_filename}, bits_per_sample={bits_per_sample}, chunk.shape={chunk.shape}", flush=True)
             torchaudio.save(out_filename, chunk, sr, bits_per_sample=bits_per_sample)
         else:
             print(f"Skipping chunk {out_filename} because it's 'silent' (below threhold of {thresh} dB).",flush=True)
@@ -101,7 +104,7 @@ def chunk_one_file(
         bits_per_sample = set_bit_rate(args.bits, filename, debug=args.debug)
         if args.debug: print(f"   Bit rate set.  Calling blow_chunks...", flush=True)
         blow_chunks(audio, new_filename, args.chunk_size, sr=args.sr, spacing=args.spacing, 
-                    strip=args.strip, thresh=args.thresh, bits_per_sample=bits_per_sample, debug=args.debug)
+                    strip=args.strip, thresh=args.thresh, bits_per_sample=bits_per_sample, nopad=args.nopad, debug=args.debug)
     except Exception as e: 
         print(f"Error '{e}' while loading {filename} or writing chunks. Skipping.", flush=True)
 
@@ -121,6 +124,7 @@ def main():
     parser.add_argument('--bits', type=str, default='None', help='Bit depth: "None" uses torchaudio default | "match"=match input audio files | or specify an int')
     parser.add_argument('--workers', type=int, default=min(32, os.cpu_count() + 4), help='Maximum number of workers to use (default: all)')
     parser.add_argument('--nomix', action='store_true',  help='(BDCT Dataset specific) exclude output of "*/Audio Files/*Mix*"')
+    parser.add_argument('--nopad', action='store_true',  help='Disable zero padding for audio shorter than chunk_size')
     parser.add_argument('output_path', help='Path of output for chunkified data')
     parser.add_argument('input_paths', nargs='+', help='Path(s) of a file or a folder of files. (recursive)')
     parser.add_argument('--verbose', action='store_true',  help='Extra output logging')
